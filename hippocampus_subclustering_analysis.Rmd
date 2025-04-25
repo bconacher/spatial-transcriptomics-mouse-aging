@@ -1,0 +1,829 @@
+---
+title: "hippocampus_subclustering_analysis"
+output: html_document
+date: "2024-11-01"
+---
+
+#Subcluster Hippocampus
+```{r}
+set.seed(55)
+library(Seurat)
+library(rlang)
+library(ggplot2)
+library(harmony)
+library(RColorBrewer)
+library(tidyverse)
+library(patchwork)
+library(dplyr)
+library(tidyr)
+merge.obj <- readRDS('FinalannotatedMerge.obj.rds')
+merge.obj <- SetIdent(merge.obj, value = "Spatial_snn_res.0.075")
+
+hp_cluster <- subset(merge.obj, idents = 1)
+
+hp_cluster <- NormalizeData(hp_cluster, assay = "Spatial", scale.factor = 10**6) #Normalize remaining gene-count matrices using counts per million (CPM) method
+hp_cluster <- FindVariableFeatures(hp_cluster, assay = "Spatial", nfeatures = 3000) #This function identifies the 3,000 most variable genes across the cells in merge.obj
+hp_cluster <- ScaleData(hp_cluster, assay = "Spatial", features = rownames(hp_cluster))
+
+hp_cluster <- RunPCA(hp_cluster)
+
+ElbowPlot(hp_cluster,ndims = 30) + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+hp_cluster <- RunHarmony(hp_cluster,"orig.ident", dims.use = 1:10 ,assay.use = "Spatial") #Use Harmony method to eliminate merge.obj-related noise
+
+ElbowPlot(hp_cluster,ndims = 10,reduction = "harmony") + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+hp_cluster <- RunUMAP(hp_cluster, dims = 1:10,reduction = "harmony")
+
+DimPlot(hp_cluster)
+
+hp_cluster <- FindNeighbors(hp_cluster, reduction = "harmony", dims = 1:10)
+hp_cluster <- FindClusters(hp_cluster, resolution = 0.15) #perform multiple resolutions
+
+hp_cluster <- SetIdent(hp_cluster, value = "Spatial_snn_res.0.075")
+#determine best cluster resolution
+library(clustree)
+clustree(hp_cluster)
+
+#Modify clustering
+p1 <- DimPlot(hp_merge.obj)
+outlier <- CellSelector(p1)
+hp_merge.obj$Spatial_snn_res.0.075[outlier] <- '2'
+hp_merge.obj <- SetIdent(hp_merge.obj, value = hp_merge.obj$Spatial_snn_res.0.075)
+
+
+DimPlot(hp_merge.obj, split.by = 'orig.ident')
+ggsave('./Figures/Final/HP/Hp-DmPlot2.tiff', dpi = 300,width = 10)
+
+
+
+#Plot outliers
+SpatialPlot(
+  hp_merge.obj,
+  cells.highlight = outlier,           
+  cols.highlight = c("red", 'grey'), 
+  pt.size.factor = 10
+)
+
+
+
+hp_merge.obj <- readRDS('hp_seurat.obj.rds')
+
+
+```
+
+#Cell Selector Manual Assignment
+```{r}
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'aged_1')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "0"
+
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'aged_2')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "0"
+
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'adult_1')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "3"
+
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'adult_2')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "3"
+
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'p21_1')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = imagerow, y = imagecol, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "0"
+
+p1.df <- GetTissueCoordinates(hp_merge.obj, image = 'p21_2')
+p1.df$cluster <- hp_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = imagerow, y = imagecol, color = cluster)) + geom_point(size = 6)
+region <- CellSelector(p1)
+# Reassign selected cells
+hp_merge.obj$Spatial_snn_res.0.075[region] <- "0"
+
+#Set to active.ident
+hp_merge.obj <- SetIdent(hp_merge.obj, value = hp_merge.obj$Spatial_snn_res.0.075)
+
+#Rerun PCA/Harmony/UMAP
+hp_merge.obj <- RunPCA(hp_merge.obj)
+hp_merge.obj <- RunHarmony(hp_merge.obj,"orig.ident", dims.use = 1:30 ,assay.use = "Spatial")
+hp_merge.obj <- RunUMAP(hp_merge.obj, dims = 1:30)
+
+DimPlot(hp_merge.obj, split.by = 'orig.ident')
+ggsave('./Figures/Final/HP/hp-revisedDmPlot2.tiff', dpi = 300, width = 12)
+
+saveRDS(hp_merge.obj, 'hp_seurat.obj2.rds')
+
+hp_merge.obj <- readRDS('hp_seurat.obj2.rds')
+```
+
+
+#DEG analysis on hippocampus subcluster
+```{r}
+hp_merge.obj <- SetIdent(hp_merge.obj,value = 'Spatial_snn_res.0.075')
+
+hp_merge.obj <- RenameIdents(hp_merge.obj, `0` = "Matrix", `1` = "DG", `2` = "CA3", `3` = 'CA1-2')
+
+#Pool replicate samples together
+hp_merge.obj$combined_groups <- ifelse(hp_merge.obj$orig.ident %in% c("aged_1", "aged_2"), "aged",
+                                     ifelse(hp_merge.obj$orig.ident %in% c("adult_1", "adult_2"), "adult",
+                                            ifelse(hp_merge.obj$orig.ident %in% c("P21_1", "P21_2"), "P21",
+                                                   hp_merge.obj$orig.ident)))
+
+deg_results <- list()  # To store the results for each cluster comparison
+
+hp_merge.obj <- JoinLayers(hp_merge.obj)
+
+# Loop through each spatial cluster
+for (cluster in unique(hp_merge.obj@active.ident)) {
+  # Subset data to the current cluster
+  cluster_data <- subset(hp_merge.obj, idents = cluster)
+  
+  # Set identities to combined groups for the current cluster
+  Idents(cluster_data) <- "combined_groups"
+  
+  # Check unique identities in this cluster
+  unique_idents <- unique(Idents(cluster_data))
+  print(paste("Cluster:", cluster, "Identities:", paste(unique_idents, collapse = ", ")))
+
+  # Ensure all pooled groups are present in the cluster
+  if (!all(c("adult", "aged", "P21") %in% unique_idents)) {
+    print(paste("Skipping cluster", cluster, "because one or more groups are missing."))
+    next
+  }
+
+  # Perform DEG between 'adult' and 'aged'
+  deg_adult_vs_aged <- FindMarkers(cluster_data, ident.1 = "aged", ident.2 = "adult", logfc.threshold = 0.25)
+  deg_results[[paste(cluster, "adult_vs_aged", sep = "_")]] <- deg_adult_vs_aged
+
+  # Perform DEG between 'adult' and 'P21'
+  deg_adult_vs_P21 <- FindMarkers(cluster_data, ident.1 = "P21", ident.2 = "adult", logfc.threshold = 0.25)
+  deg_results[[paste(cluster, "adult_vs_P21", sep = "_")]] <- deg_adult_vs_P21
+}
+
+saveRDS(deg_results,'hp_deg_results.rds')
+deg_results <- readRDS('deg_results.rds')
+
+#Convert list to single data frame
+all_degs <- bind_rows(deg_results, .id = "Cluster")
+
+newRownames <- c(rownames(deg_results$`CA1-2_adult_vs_aged`),rownames(deg_results$`CA1-2_adult_vs_P21`),rownames(deg_results$DG_adult_vs_aged),rownames(deg_results$DG_adult_vs_P21),rownames(deg_results$Matrix_adult_vs_aged),rownames(deg_results$Matrix_adult_vs_P21),rownames(deg_results$CA3_adult_vs_aged),rownames(deg_results$CA3_adult_vs_P21))
+
+all_degs$gene <- newRownames #add gene column from rownames data
+saveRDS(all_degs,'hp_all_degs.rds')
+all_degs <- readRDS('all_degs.rds')
+
+#Separate Aged and P21 groups
+all_DEGs_aged <- all_degs[grep("aged$",all_degs$Cluster),]
+
+all_DEGs_p21 <- all_degs[grep("P21$",all_degs$Cluster),]
+
+saveRDS(all_DEGs_aged,'hp_all_degs_aged.rds')
+saveRDS(all_DEGs_p21,'hp_all_degs_p21.rds')
+
+#Filter DEGs
+final_DEGs_p21 <- all_DEGs_p21 %>% dplyr::filter(p_val_adj < 0.05, abs(avg_log2FC) > log2(2), pct.1 > 0.1, pct.2 > 0.1) 
+saveRDS(final_DEGs_p21,file = "hp_final_DEGs_p21.rds")
+
+final_DEGs_aged <- all_DEGs_aged %>% dplyr::filter(p_val_adj < 0.05, abs(avg_log2FC) > log2(2), pct.1 > 0.1, pct.2 > 0.1) 
+saveRDS(final_DEGs_aged,file = "hp_final_DEGs_aged.rds")
+
+
+#Add new column 'cluster' for jjVolcano
+final_DEGs_aged$cluster <- final_DEGs_aged$Cluster
+#Change Cluster Names
+final_DEGs_aged$cluster <- gsub("CA3_adult_vs_aged", "CA3", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("DG_adult_vs_aged", "DG", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("Matrix_adult_vs_aged", "Matrix", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("CA1-2_adult_vs_aged", "CA1-2", final_DEGs_aged$cluster)
+
+final_DEGs_p21$cluster <- final_DEGs_p21$Cluster
+#Change Cluster Names
+final_DEGs_p21$cluster <- gsub("CA3_adult_vs_P21", "CA3", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("DG_adult_vs_P21", "DG", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("Matrix_adult_vs_P21", "Matrix", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("CA1-2_adult_vs_P21", "CA1-2", final_DEGs_p21$cluster)
+
+
+
+###########################################################################################################################################
+final_DEGs_aged <- readRDS('hp_final_degs_aged.rds')
+final_DEGs_p21 <- readRDS('hp_final_degs_p21.rds')
+
+#filter out early response genes
+early_response_genes <- c('Fos','Fosb','Fosl2','Junb','Arc','Npas4','Egr1','Egr2','Egr3','Nr4a1','Gadd45b')
+filtered_DEGs_aged <- final_DEGs_aged[!final_DEGs_aged$gene %in% early_response_genes, ]
+filtered_DEGs_p21 <- final_DEGs_p21[!final_DEGs_p21$gene %in% early_response_genes, ]
+
+#Filter upregulated/downregulated
+upregulated_genes_aged <- filtered_DEGs_aged %>%
+  filter(avg_log2FC > 0)
+upregulated_genes_p21 <- filtered_DEGs_p21 %>%
+  filter(avg_log2FC > 0)
+
+# Subset for downregulated genes (log2FC < 0)
+downregulated_genes_aged <- filtered_DEGs_aged %>%
+  filter(avg_log2FC < 0)
+downregulated_genes_p21 <- filtered_DEGs_p21 %>%
+  filter(avg_log2FC < 0)
+
+#split into brain regions
+aged_byCluster_down <- split(downregulated_genes_aged$gene, downregulated_genes_aged$Cluster)
+aged_byCluster_up <- split(upregulated_genes_aged$gene, upregulated_genes_aged$Cluster)
+p21_byCluster_down <- split(downregulated_genes_p21$gene, downregulated_genes_p21$Cluster)
+p21_byCluster_up <- split(upregulated_genes_p21$gene, upregulated_genes_p21$Cluster)
+
+saveRDS(aged_byCluster, 'hp_aged_byCluster.rds')
+saveRDS(p21_byCluster, 'hp_p21_byCluster.rds')
+
+
+final_DEGs_aged <- readRDS('hp_final_degs_aged.rds')
+final_DEGs_p21 <- readRDS('hp_final_degs_p21.rds')
+
+aged_byCluster <- readRDS('hp_aged_byCluster.rds')
+p21_byCluster <- readRDS('hp_p21_byCluster.rds')
+```
+
+
+#Top DEGs
+```{r}
+#Reorder clusters
+hp_merge.obj@active.ident <- factor(Idents(hp_merge.obj), levels = c("CA1-2", "CA3", "DG", 'Matrix'))
+
+#Top DEGs
+filtered_DEGs_aged %>%
+    group_by(Cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top5deg
+
+DoHeatmap(hp_merge.obj, features = top5deg$gene)+
+  scale_fill_gradientn(colors = c("blue", "white", "red"))
+
+#Find all Markers
+hp_cluster_markers <- FindAllMarkers(hp_merge.obj, only.pos = TRUE, min.pct = 0.5, logfc.threshold = 0.25)
+
+hp_cluster_markers %>%
+    group_by(cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top5mark
+
+DoHeatmap(hp_merge.obj, features = top5mark$gene)+
+  scale_fill_gradientn(colors = c("blue", "white", "red"))
+
+
+
+#ABA gene markers
+#Cluster Markers
+VlnPlot(hp_merge.obj,
+        split.by = 'orig.ident',
+        features = c('Lrmp',
+                     'Tmem215',
+                     'Tdo2',
+                     'Ndrg2'),
+        stack = TRUE,
+        flip = TRUE,
+        cols = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2","grey","yellow")) +
+  theme(
+      axis.text = element_text(size = 20),  
+      axis.title = element_text(size = 20),
+      axis.text.y = element_text(size = 12),
+      strip.text = element_text(size = 20),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(size = 12),
+      legend.position = "right"
+  )
+
+ggsave('./Figures/Final/HP/VlnPlotABA-bySample.tiff',dpi = 300)
+
+# Filter for significant markers in Matrix
+matrix_markers <- subset(hp_cluster_markers, cluster == "Matrix" & p_val_adj < 0.05)
+
+# Now check if those genes are NOT significantly expressed in other clusters
+non_matrix_markers <- subset(hp_cluster_markers, cluster != "Matrix" & gene %in% matrix_markers$gene)
+
+# Get genes that are *only* significant in Matrix
+matrix_exclusive_genes <- setdiff(matrix_markers$gene, non_matrix_markers$gene)
+
+```
+
+
+#jjVolcano
+```{r}
+library(scRNAtoolVis)
+
+jjVolcano(diffData = final_DEGs_p21,
+          log2FC.cutoff = log(1.5,2),
+          adjustP.cutoff = 0.05,
+          topGeneN = 0,
+          tile.col = c("purple","#00BFC4","#00BA38","#F8766D"),
+          base_size  = 18,
+          legend.position = "none",
+          pSize = 1.5,
+          celltypeSize = 7
+          ) +
+   xlab("") +
+   ylab("Average log2FoldChange") 
+
+ggsave("./Figures/Final/HP/jjVolcano-2FC-p21.tiff", dpi = 300)
+```
+
+#ClusterProfiler
+```{r}
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(enrichplot)
+
+
+#Perform GO for each HP region and save as .csv
+ego <- enrichGO(
+  gene = common_genes,  
+  OrgDb = org.Mm.eg.db, 
+  keyType = "SYMBOL", 
+  ont = "BP", 
+  pAdjustMethod = "BH", 
+  pvalueCutoff = 0.05, 
+  qvalueCutoff = 0.05, 
+  readable = TRUE
+  )
+  csv_filename <- './HP/GO/DG_p21_down_GO.csv'
+  write.csv(ego, file = csv_filename, row.names = FALSE)
+
+  
+#KEGG analysis
+  
+# Convert gene symbols to Entrez IDs
+gene_ids <- bitr(p21_byCluster$`CA1-2_adult_vs_P21`, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+entrez_genes <- gene_ids$ENTREZID
+kegg_result <- enrichKEGG(gene = entrez_genes,
+                          organism = "mmu", 
+                          pvalueCutoff = 0.05)
+
+kegg_df <- kegg_result@result
+View(kegg_df)
+write.csv(kegg_df, "./HP/GO/CA1-2_p21_KEGG.csv", row.names = FALSE)
+
+```
+
+#Figure 3a/3b
+```{r}
+#Figure 3a
+SpatialDimPlot(hp_merge.obj,images = 'adult_1', pt.size.factor = 9, alpha = 1, image.alpha = 0.5,label = F)
+
+saveRDS(hp_cluster, 'hp_seurat.obj.rds')
+###############################################################################
+#Figure 3b
+#Cluster Markers
+VlnPlot(hp_merge.obj, 
+        #split.by = 'orig.ident',
+        features = c('Wnt2',
+                     'Shisa2',
+                     'Dsp',
+                     'Aqp4'),
+        stack = TRUE,
+        flip = TRUE,
+        cols = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2","grey","yellow")) +
+  theme(
+      axis.text = element_text(size = 26),  
+      axis.title = element_text(size = 26),
+      axis.text.y = element_text(size = 12),
+      strip.text = element_text(size = 26),
+      axis.title.x = element_blank(),
+      legend.position = "none"
+  )
+ggsave('./Figures/Final/HP/VlnPlotMarkerGene.tiff',dpi = 300, bg = 'white')
+
+```
+
+#Figure 3c
+```{r}
+library(VennDiagram)
+library(readr)
+
+#Aged versus P21 Total Shared Upregulated DEGs
+aged_genes <- unlist(aged_byCluster_up)
+p21_genes <- unlist(p21_byCluster_up)
+
+upregulated_list <- list(
+  Aged = aged_genes,
+  P21 = p21_genes
+)
+
+
+#Aged versus P21 Total Shared DEGs
+aged_genes <- unlist(aged_byCluster_down)
+aged_genes_up <- unlist(aged_byCluster_up)
+p21_genes <- unlist(p21_byCluster_down)
+p21_genes_up <- unlist(p21_byCluster_up)
+
+Deg_list <- list(
+  Aged_down = aged_genes,
+  P21_down = p21_genes,
+  Aged_up = aged_genes_up,
+  P21_up = p21_genes_up
+)
+
+#Figure 3C
+venn.plot <- venn.diagram(
+  x = Deg_list,
+  category.names = c('Aged','P21', 'Aged','P21'),
+  fill = c("#377EB8", "#377EB8","#E41A1C","#E41A1C"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 3,
+  cex = 3,
+  cat.pos = c(-11,0,0,0),
+  #cat.dist = c(0.04, 0.04),
+  filename = './Figures/Final/HP/p21vsagedVenn-all.tiff'
+)
+
+
+```
+
+
+#Figure 3d
+```{r}
+dg_up_p21 <- read_csv("./HP/GO/DG_p21_up_GO.csv") %>% select(Description, p.adjust)
+ca12_up_p21 <- read_csv("./HP/GO/CA1-2_p21_up_GO.csv") %>% select(Description, p.adjust)
+ca3_up_p21 <- read_csv("./HP/GO/CA3_p21_up_GO.csv") %>% select(Description, p.adjust)
+matrix_up_p21 <- read_csv("./HP/GO/Matrix_p21_up_GO.csv") %>% select(Description, p.adjust)
+
+go_results_list_p21 <- list(
+                      dg_up_p21 = read_csv("./HP/GO/DG_p21_up_GO.csv") ,
+                      ca12_up_p21 = read_csv("./HP/GO/CA1-2_p21_up_GO.csv") ,
+                      ca3_up_p21 = read_csv("./HP/GO/CA3_p21_up_GO.csv") ,
+                      matrix_up_p21 = read_csv("./HP/GO/Matrix_p21_up_GO.csv")
+)
+
+# Combine all GO results into a single dataframe
+go_combined <- bind_rows(go_results_list_p21, .id = "Region")
+
+# Convert p.adjust to -log10 scale
+go_combined <- go_combined %>%
+  mutate(log10_p = -log10(p.adjust)) 
+
+# Define the desired order of brain regions
+region_order <- c("ca12_up_p21", "ca3_up_p21", "dg_up_p21", "matrix_up_p21")
+
+# Add Up/Down classification based on the original dataset
+go_combined <- go_combined %>%
+  mutate(Regulation = ifelse(str_detect(Region, "_up_p21$"), "Upregulated", "Downregulated"))  # Detect "_Up" or "_Down"
+
+#Select the top 2 GO terms per brain region (both Up and Down)
+# go_top2 <- go_combined %>%
+#   group_by(Region, Regulation) %>%
+#   top_n(-2, wt = p.adjust) %>%  # Select top 2 per category
+#   ungroup()
+
+# Define GO terms to display
+selected_go_terms <- c("ensheathment of neurons","myelination","gliogenesis","regulation of neurogenesis")
+
+# Filter GO results to keep only the selected terms
+go_selected <- go_combined %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+
+# Pivot data for heatmap format
+heatmap_data_long <- go_selected %>%
+  dplyr::select(Region, Description, log10_p, Regulation) %>%
+  mutate(Region = factor(Region, levels = region_order),  # Ensure correct order
+         Color_Fill = ifelse(str_detect(Region, "_up_p21$"), log10_p, -log10_p))  # Apply positive for Up, negative for Down
+
+# Automatically insert line breaks for long GO terms
+heatmap_data_long <- heatmap_data_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+#heatmap_data_long$Description <- factor(heatmap_data_long$Description, levels = c("synaptic vesicle cycle","vesicle-mediated transport in\nsynapse", "neurotransmitter secretion", "axon regeneration","regulation of neurogenesis", "neuron apoptotic process", "positive regulation of\ninflammatory response","regulation of T cell\nproliferation"))
+
+
+# Create the heatmap with diverging color scale
+ggplot(heatmap_data_long, aes(x = Region, y = Description, fill = Color_Fill)) +
+  geom_tile() +  # Create heatmap tiles
+  scale_fill_gradientn(colors = c("white", "#800000"),
+                       values = scales::rescale(c(0, 16))) +  # Blue for Down, Red for Up
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 4.5, ymin = 0.5, ymax = 4.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 20, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 22),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "", fill = "-log10(p.adjust)")
+
+ggsave('./Figures/Final/HP/heatmap-p21-figure3d.tiff',dpi = 300, width = 8, bg = 'white')
+
+```
+
+
+#Figure 3e (Up/Downregulted Genes and GO Terms)
+```{r}
+# Load GO results for each brain region (assuming they are stored as separate files)
+# Read the CSV files
+dg_up <- read_csv("./HP/GO/DG_aged_up_GO.csv") %>% select(Description, p.adjust)
+ca12_up <- read_csv("./HP/GO/CA1-2_aged_up_GO.csv") %>% select(Description, p.adjust)
+ca3_up <- read_csv("./HP/GO/CA3_aged_up_GO.csv") %>% select(Description, p.adjust)
+matrix_up <- read_csv("./HP/GO/Matrix_aged_up_GO.csv") %>% select(Description, p.adjust)
+
+dg_down <- read_csv("./HP/GO/DG_aged_down_GO.csv") %>% select(Description, p.adjust)
+ca12_down <- read_csv("./HP/GO/CA1-2_aged_down_GO.csv") %>% select(Description, p.adjust)
+ca3_down <- read_csv("./HP/GO/CA3_aged_down_GO.csv") %>% select(Description, p.adjust)
+matrix_down <- read_csv("./HP/GO/Matrix_aged_down_GO.csv") %>% select(Description, p.adjust)
+
+go_results_list <- list(
+                        dg_up = read_csv("./HP/GO/DG_aged_up_GO.csv"), 
+                        ca12_up = read_csv("./HP/GO/CA1-2_aged_up_GO.csv"), 
+                        ca3_up = read_csv("./HP/GO/CA3_aged_up_GO.csv"), 
+                        matrix_up = read_csv("./HP/GO/Matrix_aged_up_GO.csv"), 
+                        
+                        #dg_down = read_csv("./HP/GO/DG_aged_down_GO.csv"), #no values
+                        ca12_down = read_csv("./HP/GO/CA1-2_aged_down_GO.csv"), 
+                        #ca3_down = read_csv("./HP/GO/CA3_aged_down_GO.csv"), #no values
+                        matrix_down = read_csv("./HP/GO/Matrix_aged_down_GO.csv") 
+)
+write.csv(go_combined, 'go_results_list_hip.csv')
+
+# Combine all GO results into a single dataframe
+go_combined <- bind_rows(go_results_list, .id = "Region")
+
+# Convert p.adjust to -log10 scale
+go_combined <- go_combined %>%
+  mutate(log10_p = -log10(p.adjust)) 
+
+# Define the desired order of brain regions
+region_order <- c("ca12_up", "ca3_up", "dg_up", "matrix_up", "ca12_down", "matrix_down")
+
+# Add Up/Down classification based on the original dataset
+go_combined <- go_combined %>%
+  mutate(Regulation = ifelse(str_detect(Region, "_up$"), "Upregulated", "Downregulated"))  # Detect "_Up" or "_Down"
+
+
+# Define GO terms to display
+selected_go_terms <- c("regulation of neurogenesis", "neuron apoptotic process", "positive regulation of inflammatory response","regulation of T cell proliferation", "synaptic vesicle cycle","vesicle-mediated transport in synapse", "neurotransmitter secretion", "axon regeneration")
+
+# Filter GO results to keep only the selected terms
+go_selected <- go_combined %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+
+# Pivot data for heatmap format
+heatmap_data_long <- go_selected %>%
+  dplyr::select(Region, Description, log10_p, Regulation) %>%
+  mutate(Region = factor(Region, levels = region_order),  # Ensure correct order
+         Color_Fill = ifelse(str_detect(Region, "_up$"), log10_p, -log10_p))  # Apply positive for Up, negative for Down
+
+# Automatically insert line breaks for long GO terms
+heatmap_data_long <- heatmap_data_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+heatmap_data_long$Description <- factor(heatmap_data_long$Description, levels = c("synaptic vesicle cycle","vesicle-mediated transport in\nsynapse", "neurotransmitter secretion", "axon regeneration","regulation of neurogenesis", "neuron apoptotic process", "positive regulation of\ninflammatory response","regulation of T cell\nproliferation"))
+
+
+# Create the heatmap with diverging color scale
+ggplot(heatmap_data_long, aes(x = Region, y = Description, fill = Color_Fill)) +
+  geom_tile() +  # Create heatmap tiles
+  scale_fill_gradientn(colors = c("#7F99B2", "white", "#800000"),
+                       values = scales::rescale(c(2, 4,8))) +  # Blue for Down, Red for Up
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 4.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  geom_rect(xmin = 4.5, xmax = 6.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 20, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 22),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "", fill = "-log10(p.adjust)")
+
+ggsave('./Figures/Final/HP/heatmap-aged-figure3e.tiff',dpi = 300, width = 8, bg = 'white')
+
+```
+
+#Supplementary Figure S3a
+```{r}
+pt_size_factors <- c(3100, 2850, 9, 8, 15, 15)
+
+# Get the names of the images
+ident_values <- names(hp_merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialDimPlot(hp_merge.obj, images = ident_values[i], pt.size.factor = pt_size_factors[i]) + theme(legend.position = 'none') + ggtitle(ident_values[i]) 
+   #color_scale + 
+  #  theme(legend.position = "none")  # Remove individual legends
+})
+
+# Combine the plots and add the common legend
+combined_plot <- patchwork::wrap_plots(plots, nrow = 1)
+
+ggsave('./Figures/Final/HP/Hp-Subcluster3.tiff', dpi = 300)
+```
+
+
+#Supplementary Figure S3b
+```{r}
+#Trending Up
+ca12_genes_agedUp <- aged_byCluster_up$`CA1-2_adult_vs_aged`
+ca12_genes_p21Down <- p21_byCluster_down$`CA1-2_adult_vs_P21`
+
+# Find the intersection across all regions
+common_genes <- intersect(ca12_genes_agedUp,ca12_genes_p21Down) #No genes
+
+dg_genes_agedUp <- aged_byCluster_up$DG_adult_vs_aged
+dg_genes_p21Down <- p21_byCluster_down$DG_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(dg_genes_agedUp,dg_genes_p21Down) #Lct and Ighm
+
+ca3_genes_agedUp <- aged_byCluster_up$CA3_adult_vs_aged
+ca3_genes_p21Down <- p21_byCluster_down$CA3_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(ca3_genes_agedUp,ca3_genes_p21Down) #No genes
+
+matrix_genes_agedUp <- aged_byCluster_up$Matrix_adult_vs_aged
+matrix_genes_p21Down <- p21_byCluster_down$Matrix_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(matrix_genes_agedUp,matrix_genes_p21Down) #Ptgds
+
+
+#Trending Down
+ca12_genes_agedDown <- aged_byCluster_down$`CA1-2_adult_vs_aged`
+ca12_genes_p21Up <- p21_byCluster_up$`CA1-2_adult_vs_P21`
+
+# Find the intersection across all regions
+common_genes <- intersect(ca12_genes_agedDown,ca12_genes_p21Up) #Tspan2 and Fxyd7
+
+dg_genes_agedDown <- aged_byCluster_down$DG_adult_vs_aged
+dg_genes_p21Up <- p21_byCluster_up$DG_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(dg_genes_agedDown,dg_genes_p21Up) #Opalin and Tmem163
+
+ca3_genes_agedDown <- aged_byCluster_down$CA3_adult_vs_aged
+ca3_genes_p21Up <- p21_byCluster_up$CA3_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(ca3_genes_agedDown,ca3_genes_p21Up) #Ttr, Tmem163, Hbb-bs, and Hba-a2
+
+matrix_genes_agedDown <- aged_byCluster_down$Matrix_adult_vs_aged
+matrix_genes_p21Up <- p21_byCluster_up$Matrix_adult_vs_P21
+
+# Find the intersection across all regions
+common_genes <- intersect(matrix_genes_agedDown,matrix_genes_p21Up) #Tspan2, Tmem163, and Fa2h
+
+############################################################################################################
+genes_to_plot <- c('Lct','Ighm','Ptgds','Tspan2','Fxyd7','Opalin','Tmem163','Ttr','Tmem163','Hbb-bs','Hba-a2','Tspan2','Tmem163','Fa2h')
+
+hp_merge.obj$cluster <- Idents(hp_merge.obj)
+hp_merge.obj$Region_Age <- paste0(hp_merge.obj$cluster, "_", hp_merge.obj$combined_groups)
+hp_merge.obj$Region_Age <- factor(hp_merge.obj$Region_Age, levels = c(
+                                                                        "CA1-2_P21", "CA1-2_adult", "CA1-2_aged",
+                                                                        "CA3_P21", "CA3_adult", "CA3_aged",
+                                                                        "DG_P21", "DG_adult", "DG_aged",
+                                                                        "Matrix_P21", "Matrix_adult", "Matrix_aged"))
+Idents(hp_merge.obj) <- "Region_Age"
+
+#supplementary figure 3b
+DoHeatmap(hp_merge.obj, features = genes_to_plot, group.by = "Region_Age") + 
+    scale_fill_gradientn(colors = c("blue", "white", "red")) +
+    ggtitle("") + 
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 15),
+      legend.title = element_text(size = 14)
+    ) +
+   guides(color = "none")
+ggsave('./Figures/Final/HP/trendingHeatmapbyRegion.tiff', dpi = 300, width = 10, height = 7)
+
+
+#Supplementary figure 3c
+DoHeatmap(hp_merge.obj, features = shared_aged_p21_trendingDown, group.by = "orig.ident") + 
+    scale_fill_gradientn(colors = c("blue", "white", "red")) +
+    ggtitle("") + 
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 15),
+      legend.title = element_text(size = 14)
+    ) +
+   guides(color = "none") 
+ggsave('./Figures/Final/HP/trendingDownHeatmap.tiff', dpi = 300)
+
+ca3_genes <- aged_byCluster_up$CA3_adult_vs_aged
+dg_genes <- aged_byCluster_up$DG_adult_vs_aged
+matrix_genes <- aged_byCluster_up$Matrix_adult_vs_aged
+```
+
+#Supplementary Figure S4
+```{r}
+# Combine lists into a named list
+aged_list_up <- list(
+  CA12 = aged_byCluster_up$`CA1-2_adult_vs_aged`,
+  CA3 = aged_byCluster_up$CA3_adult_vs_aged,
+  DG = aged_byCluster_up$DG_adult_vs_aged,
+  Matrix = aged_byCluster_up$Matrix_adult_vs_aged
+)
+
+venn.plot <- venn.diagram(
+  x = aged_list_up,
+  category.names = c('CA1-2','CA3','DG','Matrix'),
+  fill = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 2,
+  #cat.pos = c(0,0,-150,-180,0),
+  #cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './Figures/Final/HP/agedVenn_trend_up.tiff'
+)
+
+aged_list_down <- list(
+  CA12 = aged_byCluster_down$`CA1-2_adult_vs_aged`,
+  CA3 = aged_byCluster_down$CA3_adult_vs_aged,
+  DG = aged_byCluster_down$DG_adult_vs_aged,
+  Matrix = aged_byCluster_down$Matrix_adult_vs_aged
+)
+
+venn.plot <- venn.diagram(
+  x = aged_list_down,
+  category.names = c('CA1-2','CA3','DG','Matrix'),
+  fill = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 2,
+  #cat.pos = c(0,0,-150,-180,0),
+  #cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './Figures/Final/HP/agedVenn_trend_down.tiff'
+)
+
+#P21
+p21_list_up <- list(
+  CA12 = p21_byCluster_up$`CA1-2_adult_vs_P21`,
+  CA3 = p21_byCluster_up$CA3_adult_vs_P21,
+  DG = p21_byCluster_up$DG_adult_vs_P21,
+  Matrix = p21_byCluster_up$Matrix_adult_vs_P21
+)
+
+venn.plot <- venn.diagram(
+  x = p21_list_up,
+  category.names = c('CA1-2','CA3','DG','Matrix'),
+  fill = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 2,
+  #cat.pos = c(0,0,-150,-180,0),
+  #cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './Figures/Final/HP/p21Venn_trend_up.tiff'
+)
+
+p21_list_down <- list(
+  CA12 = p21_byCluster_down$`CA1-2_adult_vs_P21`,
+  CA3 = p21_byCluster_down$CA3_adult_vs_P21,
+  DG = p21_byCluster_down$DG_adult_vs_P21,
+  Matrix = p21_byCluster_down$Matrix_adult_vs_P21
+)
+
+venn.plot <- venn.diagram(
+  x = p21_list_down,
+  category.names = c('CA1-2','CA3','DG','Matrix'),
+  fill = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 2,
+  #cat.pos = c(0,0,-150,-180,0),
+  #cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './Figures/Final/HP/p21Venn_trend_down.tiff'
+)
+
+```
+
+

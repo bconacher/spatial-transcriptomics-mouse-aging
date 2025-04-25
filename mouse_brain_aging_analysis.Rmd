@@ -1,0 +1,1828 @@
+---
+title: "mouse_brain_aging_analysis"
+output: html_document
+date: "2024-11-01"
+---
+
+# Load libraries
+```{r}
+set.seed(55)
+library(Seurat)
+library(rlang)
+library(ggplot2)
+library(harmony)
+library(RColorBrewer)
+library(tidyverse)
+library(patchwork)
+library(dplyr)
+library(tidyr)
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(enrichplot)
+library(ggplot2)
+library(ggvenn)
+library(ComplexUpset)
+```
+
+
+#Read Spatial Data from SpaceRanger outputs
+```{r}
+#aged_1
+aged_1 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/aged_1/filtered_feature_bc_matrix")
+aged_1 <- CreateSeuratObject(aged_1, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS1 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/aged_1/spatial")
+DefaultAssay(ImageS1) <- 'Spatial'
+aged_1[['aged_1']] <- ImageS1 #Integrates expression with Image
+aged_1$orig.ident <- "aged_1"
+
+#aged_2
+aged_2 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/aged_2/filtered_feature_bc_matrix")
+aged_2 <- CreateSeuratObject(aged_2, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS2 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/aged_2/spatial")
+DefaultAssay(ImageS2) <- 'Spatial'
+aged_2[['aged_2']] <- ImageS2 #Integrates expression with Image
+aged_2$orig.ident <- "aged_2"
+
+#adult_1
+adult_1 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/adult_1/filtered_feature_bc_matrix")
+adult_1 <- CreateSeuratObject(adult_1, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS3 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/adult_1/spatial")
+DefaultAssay(ImageS3) <- 'Spatial'
+adult_1[['adult_1']] <- ImageS3 #Integrates expression with Image
+adult_1$orig.ident <- "adult_1"
+
+#adult_2
+adult_2 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/adult_2/filtered_feature_bc_matrix")
+adult_2 <- CreateSeuratObject(adult_2, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS4 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/adult_2/spatial")
+DefaultAssay(ImageS4) <- 'Spatial'
+adult_2[['adult_2']] <- ImageS4 #Integrates expression with Image
+adult_2$orig.ident <- "adult_2"
+
+#mf_p21_rep1
+mf_p21_rep1 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/p21_1/filtered_feature_bc_matrix")
+mf_p21_rep1 <- CreateSeuratObject(AD, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS5 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/p21_1/spatial")
+DefaultAssay(ImageS5) <- 'Spatial'
+mf_p21_rep1[['mf_p21_rep1']] <- ImageS5 #Integrates expression with Image
+mf_p21_rep1$orig.ident <- "mf_p21_rep1"
+
+#mf_p21_rep2
+mf_p21_rep2 <- Read10X(data.dir = "C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/p21_2/filtered_feature_bc_matrix")
+mf_p21_rep2 <- CreateSeuratObject(AD, project = 'brain', assay = 'Spatial', min.cells = 3) #Creates Seurat Object
+ImageS6 <- Read10X_Image("C:/Users/Benco/OneDrive - Virginia Tech/Xie Lab/Computational/p21_2/spatial")
+DefaultAssay(ImageS6) <- 'Spatial'
+mf_p21_rep2[['mf_p21_rep2']] <- ImageS6 #Integrates expression with Image
+mf_p21_rep2$orig.ident <- "mf_p21_rep2"
+
+
+#Merge
+# List of all Seurat objects
+seurat_list <- list(aged_1, aged_2, adult_1, adult_2, mf_p21_rep1, mf_p21_rep2)
+
+# Add cell IDs
+cell_ids <- c("aged_1", "aged_2", "adult_1", "adult_2", "mf_p21_rep1", "mf_p21_rep2")
+
+# Merge all Seurat objects
+merge.obj <- merge(seurat_list[[1]], y = seurat_list[2:6], add.cell.ids = cell_ids)
+
+```
+
+#Data Preprocessing of seurat object
+```{r}
+merge.obj <- subset(merge.obj, subset = nFeature_Spatial > 250 & nCount_Spatial > 500) #Remove FFPE Visium spots with fewer than 500UMIs or 250 genes
+merge.obj <- NormalizeData(merge.obj, assay = "Spatial", scale.factor = 10**6) #Normalize remaining gene-count matrices using counts per million (CPM) method
+merge.obj <- FindVariableFeatures(merge.obj, assay = "Spatial", nfeatures = 3000) #This function identifies the 3,000 most variable genes across the cells in merge.obj
+merge.obj <- ScaleData(merge.obj, assay = "Spatial", features = rownames(merge.obj)) #standardize/scale the expression values of genes across all cells in merge.obj
+merge.obj <- RunPCA(merge.obj, assay = "Spatial",npcs = 20, features = rownames(merge.obj)) #dimensionality reduction technique that transforms the original data into a set of linearly uncorrelated variables called principal components
+ElbowPlot(merge.obj,ndims = 30) + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+merge.obj <- RunHarmony(merge.obj,"orig.ident", dims.use = 1:10 ,assay.use = "Spatial") #Use Harmony method to eliminate merge.obj-related noise
+
+plotHarmony <- ElbowPlot(merge.obj,ndims = 10,reduction = "harmony") + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+#################################################
+merge.obj <- RunUMAP(merge.obj, dims = 1:10,reduction = "harmony") #dimensionality reduction using the UMAP (Uniform Manifold Approximation and Projection) algorithm
+
+UMAP4 <- DimPlot(merge.obj, split.by = "orig.ident", ncol = 2) #UMAP of four separate samples
+UMAP1 <- DimPlot(merge.obj) #UMAP of four samples overlayed on top of each other
+
+```
+
+#Aged_1 manual clustering
+```{r}
+# Access spatial coordinates from the Seurat object
+
+#aged_1 reassignment
+p1.df <- GetTissueCoordinates(corrected_merge.obj, image = 'aged_1')
+p1.df$cluster <- corrected_merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point()
+cortex1 <- CellSelector(p1)
+cortex2 <- CellSelector(p1)
+cortex3 <- CellSelector(p1)
+selected_cells <- c(cortex1, cortex2, cortex3)
+# Reassign selected cells to cluster 0
+merge.obj$Spatial_snn_res.0.075[selected_cells] <- "0"
+
+ex1 <- CellSelector(p1)
+ex2 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "2"
+
+hyp1 <- CellSelector(p1)
+hyp2 <- CellSelector(p1)
+hyp3 <- CellSelector(p1)
+hyp4 <- CellSelector(p1)
+hyp5 <- CellSelector(p1)
+hyp6 <- CellSelector(p1)
+hyp7 <- CellSelector(p1)
+hyp8 <- CellSelector(p1)
+hyp_cells <- c(hyp1,hyp2,hyp3,hyp4,hyp5,hyp6,hyp7,hyp8)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "2"
+
+thal1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[thal1] <- "3"
+
+hy1 <- CellSelector(p1)
+hy2 <- CellSelector(p1)
+hy3 <- CellSelector(p1)
+hy_cells <- c(hy1,hy2,hy3)
+merge.obj$Spatial_snn_res.0.075[hy_cells] <- "4"
+
+str1 <- CellSelector(p1)
+str2 <- CellSelector(p1)
+str3 <- CellSelector(p1)
+str4 <- CellSelector(p1)
+str5 <- CellSelector(p1)
+
+corrected_merge.obj$Spatial_snn_res.0.075[c(str1,str2,str3,str4,str5)] <- "4"
+
+hip1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[hip1] <- "1"
+
+
+# Identify all cells in cluster 4
+cluster_4_cells <- which(corrected_merge.obj$predicted.id == "4")
+
+# Assign these cells to cluster 2
+corrected_merge.obj$predicted.id[cluster_4_cells] <- "2"
+
+
+#EXAMPLE
+hy1 <- CellSelector(p1)
+hy2 <- CellSelector(p1)
+hy3 <- CellSelector(p1)
+hy_cells <- c(hy1,hy2,hy3)
+corrected_merge.obj$predicted.id[hy_cells] <- "4"
+
+
+
+
+```
+
+#Aged_2 manual clustering
+```{r}
+p1.df <- GetTissueCoordinates(merge.obj, image = 'aged_2')
+p1.df$cluster <- merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point()
+cortex1 <- CellSelector(p1)
+cortex2 <- CellSelector(p1)
+cortex3 <- CellSelector(p1)
+cortex4 <- CellSelector(p1)
+selected_cells <- c(cortex1, cortex2, cortex3,cortex4)
+# Reassign selected cells to cluster 0
+merge.obj$Spatial_snn_res.0.075[selected_cells] <- "0"
+
+hyp1 <- CellSelector(p1)
+hyp2 <- CellSelector(p1)
+hyp3 <- CellSelector(p1)
+hyp4 <- CellSelector(p1)
+hyp5 <- CellSelector(p1)
+hyp6 <- CellSelector(p1)
+hyp7 <- CellSelector(p1)
+hyp_cells <- c(hyp1,hyp2,hyp3,hyp4,hyp5,hyp6,hyp7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "2"
+
+thal1 <- CellSelector(p1)
+thal2 <- CellSelector(p1)
+thal3 <- CellSelector(p1)
+thal4 <- CellSelector(p1)
+thal5 <- CellSelector(p1)
+thal6 <- CellSelector(p1)
+thal7 <- CellSelector(p1)
+hyp_cells <- c(thal1,thal2,thal3,thal4,thal5,thal6,thal7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "3"
+
+vs1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[c(thal2,thal3,vs1)] <- "4"
+```
+
+#Adult_1 manual clustering
+```{r}
+p1.df <- GetTissueCoordinates(merge.obj, image = 'adult_1')
+p1.df$cluster <- merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point()
+str1 <- CellSelector(p1)
+str2 <- CellSelector(p1)
+str_cells <- c(str1,str2)
+merge.obj$Spatial_snn_res.0.075[str_cells] <- "5"
+
+
+cortex1 <- CellSelector(p1)
+cortex2 <- CellSelector(p1)
+cortex3 <- CellSelector(p1)
+cortex4 <- CellSelector(p1)
+selected_cells <- c(cortex1, cortex2, cortex3,cortex4)
+# Reassign selected cells to cluster 0
+merge.obj$Spatial_snn_res.0.075[selected_cells] <- "0"
+
+hyp1 <- CellSelector(p1)
+hyp2 <- CellSelector(p1)
+hyp3 <- CellSelector(p1)
+hyp4 <- CellSelector(p1)
+hyp5 <- CellSelector(p1)
+hyp6 <- CellSelector(p1)
+hyp7 <- CellSelector(p1)
+hyp_cells <- c(hyp1,hyp2,hyp3,hyp4,hyp5,hyp6,hyp7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "2"
+
+thal1 <- CellSelector(p1)
+thal2 <- CellSelector(p1)
+thal3 <- CellSelector(p1)
+thal4 <- CellSelector(p1)
+thal5 <- CellSelector(p1)
+thal6 <- CellSelector(p1)
+thal7 <- CellSelector(p1)
+hyp_cells <- c(thal1,thal2,thal3,thal4,thal5,thal6,thal7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "3"
+
+vs1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[vs1] <- "4"
+```
+
+
+#Adult_2 manual clustering
+```{r}
+p1.df <- GetTissueCoordinates(merge.obj, image = 'adult_2')
+p1.df$cluster <- merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point()
+cortex1 <- CellSelector(p1)
+cortex2 <- CellSelector(p1)
+cortex3 <- CellSelector(p1)
+cortex4 <- CellSelector(p1)
+selected_cells <- c(cortex1, cortex2, cortex3,cortex4)
+# Reassign selected cells to cluster 0
+merge.obj$Spatial_snn_res.0.075[selected_cells] <- "0"
+
+hyp1 <- CellSelector(p1)
+hyp2 <- CellSelector(p1)
+hyp3 <- CellSelector(p1)
+hyp4 <- CellSelector(p1)
+hyp5 <- CellSelector(p1)
+hyp6 <- CellSelector(p1)
+hyp7 <- CellSelector(p1)
+hyp_cells <- c(hyp1,hyp2,hyp3,hyp4,hyp5,hyp6,hyp7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "2"
+
+thal1 <- CellSelector(p1)
+thal2 <- CellSelector(p1)
+thal3 <- CellSelector(p1)
+thal4 <- CellSelector(p1)
+thal5 <- CellSelector(p1)
+thal6 <- CellSelector(p1)
+thal7 <- CellSelector(p1)
+hyp_cells <- c(thal1,thal2,thal3,thal4,thal5,thal6,thal7)
+# Reassign selected cells to cluster 2
+merge.obj$Spatial_snn_res.0.075[hyp_cells] <- "3"
+
+vs1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[vs1] <- "4"
+
+str1 <- CellSelector(p1)
+merge.obj$Spatial_snn_res.0.075[str1] <- "5"
+```
+
+# P21rep1&2 from Amanda; some additional manual clustering
+```{r}
+source.obj <- readRDS('cluster_adj_p21.rds')
+SpatialDimPlot(source.obj, pt.size.factor = 750, alpha = 1, image.alpha = 0.5, group.by = "Spatial_snn_res.0.075", ncol = 2,label = F)
+cluster_info <- source.obj$Spatial_snn_res.0.075
+samples_to_update <- merge.obj@meta.data$orig.ident %in% c('mf_p21_rep1', 'mf_p21_rep2')
+
+merge.obj@meta.data$Spatial_snn_res.0.075[samples_to_update] <- cluster_info[samples_to_update]
+SpatialDimPlot(merge.obj, pt.size.factor = 3, alpha = 1, image.alpha = 0.5, group.by = "Spatial_snn_res.0.075", ncol = 2,label = F)
+
+p1.df <- GetTissueCoordinates(merge.obj, image = 'mf_p21_rep1')
+p1.df$cluster <- merge.obj$Spatial_snn_res.0.075[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = imagerow, y = imagecol, color = cluster)) + geom_point()
+cortex1 <- CellSelector(p1)
+cortex2 <- CellSelector(p1)
+cortex3 <- CellSelector(p1)
+cortex4 <- CellSelector(p1)
+selected_cells <- c(cortex1, cortex2, cortex3,cortex4)
+# Reassign selected cells to cluster 0
+merge.obj$Spatial_snn_res.0.075[selected_cells] <- "2"
+```
+
+#Cluster assignment
+```{r}
+#Change cluster # to brain region/
+merge.obj <- SetIdent(merge.obj, value = "Spatial_snn_res.0.075")
+table(Idents(merge.obj))
+new_cluster_names <- c("0" = "Cortex", "1" = "Hippocampus", "2" = "Hypothalamus", '3' = 'Thalamus', '4' = 'Ventricular System','5' = 'Striatum')
+merge.obj <- RenameIdents(merge.obj, new_cluster_names)
+
+#Change order to P21/Adult/Aged
+merge.obj$orig.ident <- factor(merge.obj$orig.ident, levels = c('mf_p21_rep1','mf_p21_rep2','adult_1','adult_2','aged_1','aged_2'))
+
+
+#Rename Idents
+new_names <- list("mf_p21_rep1" = "P21_1",
+               "mf_p21_rep2" = "P21_2", 
+               'adult_1' = 'adult_1',
+               'adult_2' = 'adult_2',
+               'aged_1' = 'aged_1',
+               'aged_2' = 'aged_2')
+merge.obj$orig.ident <- recode(merge.obj$orig.ident, !!!new_names)
+
+#change order of images
+merge.obj@images <- merge.obj@images[c('mf_p21_rep1','mf_p21_rep2','adult_1','adult_2','aged_1','aged_2')]
+new_image_names <- c("p21_1", "p21_2", "adult_1","adult_2",'aged_1','aged_2')
+names(merge.obj@images) <- new_image_names
+
+SpatialDimPlot(merge.obj, pt.size.factor = 3, alpha = 1, image.alpha = 0.5, group.by = "Spatial_snn_res.0.075", ncol = 2,label = F)
+saveRDS(merge.obj,'FinalannotatedMerge.obj.rds')
+
+#Rerun harmony and umap after manual clustering
+merge.obj <- ScaleData(merge.obj)
+merge.obj <- RunPCA(merge.obj, assay= 'Spatial', npcs = 30)
+# Run UMAP
+ElbowPlot(merge.obj,ndims = 30) + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+merge.obj <- RunHarmony(merge.obj, group.by.vars = "orig.ident", dims.use = 1:30, slot = 'data')
+
+ElbowPlot(merge.obj,ndims = 20,reduction = "harmony") + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+merge.obj <- RunUMAP(merge.obj, reduction = "harmony", dims = 1:30)
+
+DimPlot(merge.obj, reduction = "umap",pt.size = 0.5) + theme(legend.position = 'none')
+ggsave('./Figures/Final/DmPlotBySample.jpg')
+#Select outliers on umap
+p1 <- DimPlot(merge.obj, reduction = "umap",pt.size = 0.5) + theme(legend.position = 'none')
+
+outliers <- CellSelector(p1)
+
+#Plot outliers
+SpatialPlot(
+  merge.obj,
+  cells.highlight = outliers,           
+  cols.highlight = c("red", 'grey'), 
+  pt.size.factor = 4
+)
+
+pt_size_factors <- c(730, 730, 3.5, 3.5, 5, 5)
+
+# Get the names of the images
+ident_values <- names(merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialPlot(merge.obj, images = ident_values[i], pt.size.factor = pt_size_factors[i], cells.highlight = outliers) + 
+  theme(legend.position = "none") + # Remove individual legends
+  ggtitle(paste(ident_values[i]))
+    })
+combined_plot <- wrap_plots(plots, nrow = 1)
+
+
+ggsave('./Figures/Final/SpatialPlotOutlier2.tiff')
+
+
+```
+
+#Subset Hypothalamus to further refine spatial clustering
+```{r}
+merge.obj <- readRDS('FinalannotatedMerge.obj.rds')
+
+SpatialDimPlot(merge.obj, images = 'aged_1', pt.size.factor = 5)
+unique(Idents(merge.obj))
+hy_cluster <- subset(merge.obj, idents = 'Hypothalamus')
+SpatialDimPlot(hy_cluster, images = 'aged_1', pt.size.factor = 5)
+
+
+hy_cluster <- NormalizeData(hy_cluster, assay = "Spatial", scale.factor = 10**6) #Normalize remaining gene-count matrices using counts per million (CPM) method
+hy_cluster <- FindVariableFeatures(hy_cluster, assay = "Spatial", nfeatures = 3000) #This function identifies the 3,000 most variable genes across the cells in merge.obj
+hy_cluster <- ScaleData(hy_cluster, assay = "Spatial", features = rownames(hy_cluster))
+
+hy_cluster <- RunPCA(hy_cluster)
+
+ElbowPlot(hy_cluster,ndims = 30) + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+hy_cluster <- RunHarmony(hy_cluster,"orig.ident", dims.use = 1:10 ,assay.use = "Spatial") #Use Harmony method to eliminate merge.obj-related noise
+
+ElbowPlot(hy_cluster,ndims = 10,reduction = "harmony") + geom_hline(yintercept=3)+
+   scale_y_continuous(breaks = c(3,5,10,15))
+
+hy_cluster <- RunUMAP(hy_cluster, dims = 1:10,reduction = "harmony")
+
+DimPlot(hy_cluster, split.by = 'orig.ident')
+
+hy_cluster <- FindNeighbors(hy_cluster, reduction = "harmony", dims = 1:10)
+hy_cluster <- FindClusters(hy_cluster, resolution = 0.05) #perform multiple resolutions; .05 aligns best with allen brain atlas
+SpatialDimPlot(hy_cluster)
+
+hy_cluster <- SetIdent(hy_cluster, value = "Spatial_snn_res.0.05")
+
+hy_cluster <- RenameIdents(hy_cluster, `0` = "Hypothalamus", `1` = "Fiber tracts", `2` = "Striatum", `3` = 'RTN')
+
+saveRDS(hy_cluster,'hy_cluster.rds')
+hy_cluster <- readRDS('hy_cluster.rds')
+
+# Extract cluster assignments
+hy_meta <- data.frame(Barcode = colnames(hy_cluster),
+                      hy_subcluster = Idents(hy_cluster))
+
+common_barcodes <- intersect(hy_meta$Barcode, colnames(merge.obj))
+
+# Update merge.obj with hypothalamus subclustering
+hy_cluster_assignments <- setNames(as.character(Idents(hy_cluster)), colnames(hy_cluster))
+
+merge.obj@meta.data[common_barcodes, "combinedCluster"] <- hy_cluster_assignments[common_barcodes]
+
+
+# Replace NA values in combinedCluster with the active identity (converted to character)
+na_idx <- is.na(merge.obj@meta.data$combinedCluster)
+merge.obj@meta.data$combinedCluster[na_idx] <- as.character(Idents(merge.obj))[na_idx]
+
+SpatialDimPlot(merge.obj, group.by = 'combinedCluster')
+
+merge.obj <- SetIdent(merge.obj, value = "combinedCluster")
+
+SpatialDimPlot(merge.obj)
+
+saveRDS(merge.obj,'merge-hy-subcluster.rds')
+```
+
+
+
+#Reassign Cells Spatially
+```{r}
+p1.df <- GetTissueCoordinates(merge.obj, image = 'p21_1')
+p1.df$cluster <- merge.obj$combinedCluster[rownames(p1.df)]
+p1 <- p1.df %>%  ggplot(aes(x = imagerow, y = imagecol, color = cluster)) + geom_point(size = 3)
+region <- CellSelector(p1)
+# Reassign selected cells
+merge.obj$combinedCluster[region] <- "Hypothalamus"
+
+p2.df <- GetTissueCoordinates(merge.obj, image = 'p21_2')
+p2.df$cluster <- merge.obj$combinedCluster[rownames(p2.df)]
+p2 <- p2.df %>%  ggplot(aes(x = imagerow, y = imagecol, color = cluster)) + geom_point(size = 3)
+region <- CellSelector(p2)
+# Reassign selected cells
+merge.obj$combinedCluster[region] <- "Fiber tracts"
+
+p3.df <- GetTissueCoordinates(merge.obj, image = 'aged_1')
+p3.df$cluster <- merge.obj$combinedCluster[rownames(p3.df)]
+p3 <- p3.df %>%  ggplot(aes(x = x, y = y, color = cluster)) + geom_point(size = 3)
+region <- CellSelector(p3)
+# Reassign selected cells
+merge.obj$combinedCluster[region] <- "Hypothalamus"
+```
+
+#Differential Gene Expression Analysis
+```{r}
+#Pool replicate samples together
+merge.obj$combined_groups <- ifelse(merge.obj$orig.ident %in% c("aged_1", "aged_2"), "aged",
+                                     ifelse(merge.obj$orig.ident %in% c("adult_1", "adult_2"), "adult",
+                                            ifelse(merge.obj$orig.ident %in% c("P21_1", "P21_2"), "P21",
+                                                   merge.obj$orig.ident)))
+
+deg_results <- list()  # To store the results for each cluster comparison
+
+merge.obj <- JoinLayers(merge.obj)
+
+# Loop through each spatial cluster
+for (cluster in unique(merge.obj@active.ident)) {
+  # Subset data to the current cluster
+  cluster_data <- subset(merge.obj, idents = cluster)
+  
+  # Set identities to combined groups for the current cluster
+  Idents(cluster_data) <- "combined_groups"
+  
+  # Check unique identities in this cluster
+  unique_idents <- unique(Idents(cluster_data))
+  print(paste("Cluster:", cluster, "Identities:", paste(unique_idents, collapse = ", ")))
+
+  # Ensure all pooled groups are present in the cluster
+  if (!all(c("adult", "aged", "P21") %in% unique_idents)) {
+    print(paste("Skipping cluster", cluster, "because one or more groups are missing."))
+    next
+  }
+
+  # Perform DEG between 'adult' and 'aged'
+  deg_adult_vs_aged <- FindMarkers(cluster_data, ident.1 = "aged", ident.2 = "adult", logfc.threshold = 0.25)
+  deg_results[[paste(cluster, "adult_vs_aged", sep = "_")]] <- deg_adult_vs_aged
+
+  # Perform DEG between 'adult' and 'P21'
+  deg_adult_vs_P21 <- FindMarkers(cluster_data, ident.1 = "P21", ident.2 = "adult", logfc.threshold = 0.25)
+  deg_results[[paste(cluster, "adult_vs_P21", sep = "_")]] <- deg_adult_vs_P21
+}
+
+#Convert list to single data frame
+all_degs <- bind_rows(deg_results, .id = "Cluster")
+
+newRownames <- c(rownames(deg_results$HY_adult_vs_aged),rownames(deg_results$HY_adult_vs_P21),rownames(deg_results$TH_adult_vs_aged),rownames(deg_results$TH_adult_vs_P21),rownames(deg_results$STR_adult_vs_aged),rownames(deg_results$STR_adult_vs_P21),rownames(deg_results$CTX_adult_vs_aged),rownames(deg_results$CTX_adult_vs_P21),rownames(deg_results$HP_adult_vs_aged),rownames(deg_results$HP_adult_vs_P21),rownames(deg_results$`VS_adult_vs_aged`),rownames(deg_results$`VS_adult_vs_P21`),rownames(deg_results$RT_adult_vs_aged),rownames(deg_results$RT_adult_vs_P21),rownames(deg_results$FT_adult_vs_aged),rownames(deg_results$FT_adult_vs_P21))
+
+all_degs$gene <- newRownames #add gene column from rownames data
+saveRDS(all_degs,'hy_all_degs.rds')
+
+#Separate Aged and P21 groups
+all_DEGs_aged <- all_degs[grep("aged$",all_degs$Cluster),]
+
+all_DEGs_p21 <- all_degs[grep("P21$",all_degs$Cluster),]
+
+saveRDS(all_DEGs_aged,'hy_all_degs_aged.rds')
+saveRDS(all_DEGs_p21,'hy_all_degs_p21.rds')
+
+#Filter DEGs
+final_DEGs_p21 <- all_DEGs_p21 %>% dplyr::filter(p_val_adj < 0.05, abs(avg_log2FC) > log2(1.5), pct.1 > 0.1, pct.2 > 0.1) 
+
+
+final_DEGs_aged <- all_DEGs_aged %>% dplyr::filter(p_val_adj < 0.05, abs(avg_log2FC) > log2(1.5), pct.1 > 0.1, pct.2 > 0.1) 
+
+
+
+#Add new column 'cluster' for jjVolcano
+final_DEGs_aged$cluster <- final_DEGs_aged$Cluster
+#Change Cluster Names
+final_DEGs_aged$cluster <- gsub("HY_adult_vs_aged", "HY", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("TH_adult_vs_aged", "TH", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("CTX_adult_vs_aged", "CTX", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("HP_adult_vs_aged", "HP", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("VS_adult_vs_aged", "VS", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("STR_adult_vs_aged", "STR", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("RT_adult_vs_aged", "RT", final_DEGs_aged$cluster)
+final_DEGs_aged$cluster <- gsub("FT_adult_vs_aged", "FT", final_DEGs_aged$cluster)
+
+saveRDS(final_DEGs_aged,file = "hy_final_DEGs_aged.rds")
+
+final_DEGs_p21$cluster <- final_DEGs_p21$Cluster
+#Change Cluster Names
+final_DEGs_p21$cluster <- gsub("HY_adult_vs_P21", "HY", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("TH_adult_vs_P21", "TH", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("CTX_adult_vs_P21", "CTX", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("HP_adult_vs_P21", "HP", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("VS_adult_vs_P21", "VS", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("STR_adult_vs_P21", "STR", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("RT_adult_vs_P21", "RT", final_DEGs_p21$cluster)
+final_DEGs_p21$cluster <- gsub("FT_adult_vs_P21", "FT", final_DEGs_p21$cluster)
+
+saveRDS(final_DEGs_p21,file = "hy_final_DEGs_p21.rds")
+```
+
+#Figure 1 figures
+```{r}
+merge.obj <- readRDS('merge-hy-subcluster.rds')
+
+# Identify variable features
+merge.obj <- FindVariableFeatures(merge.obj)
+# Scale the data
+merge.obj <- ScaleData(merge.obj)
+# Run PCA on the variable features
+merge.obj <- RunPCA(merge.obj, features = VariableFeatures(object = merge.obj))
+merge.obj <- RunHarmony(merge.obj,"orig.ident", dims.use = 1:10 ,assay.use = "Spatial")
+merge.obj <- RunUMAP(merge.obj, reduction = "harmony", dims = 1:10)
+
+
+merge.obj <- RenameIdents(merge.obj, `Cortex` = "CTX", `Hippocampus` = "HP", `Hypothalamus` = "HY", `RTN` = 'RT', `Thalamus` = 'TH', `Striatum` = 'STR', `Ventricular System` = 'VS', `Fiber tracts` = 'FT')
+
+# Convert Idents to a factor with custom ordering
+levels_order <- c("CTX", "HP", "TH", "HY", "STR", "FT", "VS", "RT")
+
+merge.obj@active.ident <- factor(Idents(merge.obj), levels = levels_order)
+
+###############################################################
+#UMAP dimplot (1C)
+DimPlot(merge.obj, reduction = "umap", label = F, pt.size = .7) +
+  theme(axis.text = element_text(size = 18),
+        legend.position = 'none')
+ggsave('./FinalFigures/UMAP.tiff',dpi = 300, height = 7, width = 7)
+
+###############################################################
+#Spatial Dim Plot (1B)
+SpatialDimPlot(merge.obj, images = 'p21_2',pt.size.factor = 720)+
+  theme(
+    legend.text = element_text(size = 36),
+    legend.title = element_blank()
+  )+
+  guides(fill = guide_legend(override.aes = list(size=17)))
+
+ggsave('./FinalFigures/spatialDimPlot.tiff',dpi = 300, height = 7, width = 9)
+
+merge.obj <- JoinLayers(merge.obj)
+markers <- FindAllMarkers(merge.obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+saveRDS(markers, 'hy_FindMarkers.rds')
+
+###############################################################
+#VlnPlot (1D)
+#Cluster Markers
+VlnPlot(merge.obj,
+        #plit.by = 'orig.ident',
+        features = c('Igfn1',
+                     'Klk8',
+                     'Abhd12b',
+                     'Gal',
+                     'Adora2a',
+                     'Lgals3',
+                     'Gm5741',
+                     'Gnb3'),
+        stack = TRUE,
+        flip = TRUE,
+        cols = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2","grey","yellow")) +
+  theme(
+      axis.text = element_text(size = 26),  
+      axis.title = element_text(size = 26),
+      axis.text.y = element_text(size = 12),
+      strip.text = element_text(size = 26),
+      axis.title.x = element_blank(),
+      legend.position = "none"
+  )
+
+ggsave('./FinalFigures/VlnPlotMarkers.tiff',dpi = 300)
+
+```
+
+#figure 2 figures A-D
+```{r}
+#devtools::install_github("junjunlab/scRNAtoolVis")
+library(scRNAtoolVis)
+#subset DEG data to remove VS and RT due to low spot numbers
+final_DEGs_aged <- final_DEGs_aged[!final_DEGs_aged$cluster %in% c('VS', 'RT'), ]
+final_DEGs_p21 <- final_DEGs_p21[!final_DEGs_p21$cluster %in% c('VS', 'RT'), ]
+
+# Generate DimPlot and extract colors
+p <- DimPlot(merge.obj, reduction = "umap", label = TRUE)
+colors <- ggplot_build(p)$data[[1]]$colour  # Extracts colors from plot
+
+# Get unique colors for the first 8 clusters
+unique_colors <- unique(colors)[1:8]  # Extract first 8 unique colors
+print(unique_colors)  # Displays hex codes
+
+###############################################################
+#Figure 2B
+final_DEGs_aged$cluster <- factor(final_DEGs_aged$cluster, levels=c('CTX','HP','TH','HY','STR','FT'))
+jjVolcano(diffData = final_DEGs_aged,
+          log2FC.cutoff = log(1.5,2),
+          adjustP.cutoff = 0.05,
+          topGeneN = 0,
+          tile.col = c("#F8766D","#CD9600","#7CAE00",'#00BE67',"#00BFC4",'#00A9FF'),
+          base_size  = 24,
+          legend.position = "none",
+          pSize = 1.5,
+          celltypeSize = 7
+          ) +
+   xlab("") +
+   ylab("Average log2FoldChange") 
+
+ggsave('./FinalFigures/jjVolcano-aged-DEGs.tiff',dpi = 300)
+
+###############################################################
+#Figure 2A
+final_DEGs_p21$cluster <- factor(final_DEGs_p21$cluster, levels=c('CTX','HP','TH','HY','STR','FT'))
+jjVolcano(diffData = final_DEGs_p21,
+          log2FC.cutoff = log(1.5,2),
+          adjustP.cutoff = 0.05,
+          topGeneN = 0,
+          tile.col = c("#F8766D","#CD9600","#7CAE00",'#00BE67',"#00BFC4",'#00A9FF'),
+          base_size  = 24,
+          legend.position = "none",
+          pSize = 1.5,
+          celltypeSize = 7
+          ) +
+   xlab("") +
+   ylab("Average log2FoldChange") 
+
+ggsave('./FinalFigures/jjVolcano-p21-DEGs.tiff',dpi = 300)
+
+###############################################################
+#Figure 2C
+library(VennDiagram)
+
+p21_byCluster <- split(final_DEGs_p21$gene, final_DEGs_p21$cluster)
+# Combine lists into a named list
+deg_list <- list(
+  CTX = p21_byCluster$CTX,
+  HP = p21_byCluster$HP,
+  TH = p21_byCluster$TH,
+  HY = p21_byCluster$HY,
+  STR = p21_byCluster$STR
+)
+
+venn.plot <- venn.diagram(
+  x = deg_list,
+  category.names = c("CTX", "HP", "TH", "HY", "STR"),
+  fill = c("#E41A1C","#CD9600", "#7CAE00",'#00BE67',"#00BFC4"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 1.75,
+  cat.pos = c(0,0,-150,-180,0),
+  cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './FinalFigures/venn_p21_adult2.tiff'
+)
+
+###############################################################
+#Figure 2D
+#Aged vs adult
+DEGs_aged <- readRDS('fixed_filtered_DEGs_aged.rds')
+
+aged_byCluster <- split(final_DEGs_aged$gene, final_DEGs_aged$Cluster)
+
+# Combine lists into a named list
+deg_list2 <- list(
+  CTX = aged_byCluster$CTX,
+  HP = aged_byCluster$HP,
+  TH = aged_byCluster$TH,
+  HY = aged_byCluster$HY,
+  STR = aged_byCluster$STR
+)
+
+
+venn.plot <- venn.diagram(
+  x = deg_list2,
+  category.names = c("CTX", "HP", "TH", "HY", "STR"),
+  fill = c("#E41A1C","#CD9600", "#7CAE00",'#00BE67',"#00BFC4"),
+  alpha = 0.5,
+#  cat.col = c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00"),
+  cat.cex = 1.7,
+  cex = 1.75,
+  cat.pos = c(0,0,-150,-180,0),
+  cat.dist = c(0.07, 0.05, 0.06, 0.07, 0.07),
+  filename = './FinalFigures/venn_aged_adult.tiff'
+)
+```
+
+#Figure 2E
+```{r}
+#Split data by cluster and up/downregulated
+# Create an empty list to store results
+split_DEGs <- list()
+
+# Loop through each brain region (cluster)
+for (region in unique(final_DEGs_p21$cluster)) {
+  
+  # Subset data for the current region
+  region_DEGs <- final_DEGs_p21 %>% filter(cluster == region)
+  
+  # Separate upregulated and downregulated genes
+  upregulated_genes <- region_DEGs %>% filter(avg_log2FC > 0) %>% pull(gene)
+  downregulated_genes <- region_DEGs %>% filter(avg_log2FC < 0) %>% pull(gene)
+  
+  # Store results
+  split_DEGs[[paste0(region, "_Up")]] <- upregulated_genes
+  split_DEGs[[paste0(region, "_Down")]] <- downregulated_genes
+}
+
+# View the structure of the split genes
+str(split_DEGs)
+
+# Set up output directories
+output_dir <- "./FinalGOResults/"
+dir.create(output_dir, showWarnings = FALSE)
+
+#ClusterProfiler on CTX, HP, TH, HY, and STR
+run_GO_analysis <- function(gene_list, region_trend) {
+  if (length(gene_list) > 0) {  # Only run if there are genes
+
+    ego <- enrichGO(
+      gene = gene_list,
+      OrgDb = org.Mm.eg.db,  # Mouse annotation
+      keyType = "SYMBOL",  # Using gene symbols
+      ont = "BP",  # Biological Process
+      pAdjustMethod = "BH",  # Adjust p-values
+      qvalueCutoff = 0.05  # Significance threshold
+    )
+
+    # Save results if GO terms are enriched
+    if (!is.null(ego)) {
+      go_results <- as.data.frame(ego)
+      write.csv(go_results, paste0(output_dir, region_trend, "_GO.csv"), row.names = FALSE)
+
+      return(go_results)  # Return results for visualization
+    }
+  }
+  return(NULL)
+}
+
+# Run GO analysis for each brain region and regulation
+go_results_list <- list()  # Store GO results for plotting
+for (name in names(split_DEGs)) {
+  go_results_list[[name]] <- run_GO_analysis(split_DEGs[[name]], name)
+}
+
+#Remove VS, FT, and RT from downstream analysis due to low spot number
+# Define brain regions to remove
+regions_to_remove <- c("VS_Up", "VS_Down","RT_Up","RT_Down") 
+
+# Remove them from the list
+go_results_list <- go_results_list[setdiff(names(go_results_list), regions_to_remove)]
+
+# Check the updated list
+str(go_results_list)
+
+
+# Load GO results for each brain region (assuming they are stored as separate files)
+go_ctx_up <- read.csv("./FinalGOResults/p21/CTX_Up_GO.csv")
+go_ctx_down <- read.csv("./FinalGOResults/p21/CTX_Down_GO.csv")
+go_hp_up <- read.csv("./FinalGOResults/p21/HP_Up_GO.csv")
+go_hp_down <- read.csv("./FinalGOResults/p21/HP_Down_GO.csv")
+go_th_up <- read.csv("./FinalGOResults/p21/TH_Up_GO.csv")
+go_th_down <- read.csv("./FinalGOResults/p21/TH_Down_GO.csv")
+go_hy_up <- read.csv("./FinalGOResults/p21/HY_Up_GO.csv")
+go_hy_down <- read.csv("./FinalGOResults/p21/HY_Down_GO.csv")
+go_str_up <- read.csv("./FinalGOResults/p21/STR_Up_GO.csv")
+go_str_down <- read.csv("./FinalGOResults/p21/STR_Down_GO.csv")
+go_ft_up <- read.csv("./FinalGOResults/p21/FT_Up_GO.csv")
+go_ft_down <- read.csv("./FinalGOResults/p21/FT_Down_GO.csv")
+
+# Combine all into one list
+
+
+# Combine all GO results into a single dataframe
+go_combined <- bind_rows(go_results_list, .id = "Region")
+
+# Convert p.adjust to -log10 scale
+go_combined <- go_combined %>%
+  mutate(log10_p = -log10(p.adjust)) 
+
+# Define the desired order of brain regions
+region_order <- c("CTX_Up", "HP_Up", "TH_Up", "HY_Up", "STR_Up","FT_Up","CTX_Down", "HP_Down", "TH_Down", "HY_Down", "STR_Down","FT_Down")
+
+# Add Up/Down classification based on the original dataset
+go_combined <- go_combined %>%
+  mutate(Regulation = ifelse(str_detect(Region, "_Up$"), "Upregulated", "Downregulated"))  # Detect "_Up" or "_Down"
+
+# # Select the top 2 GO terms per brain region (both Up and Down)
+# go_top2 <- go_combined %>%
+#   group_by(Region, Regulation) %>%
+#   top_n(-2, wt = p.adjust) %>%  # Select top 2 per category
+#   ungroup()
+
+# Define GO terms to display
+selected_go_terms <- c("circadian rhythm","regulation of chemokine production","reproductive behavior","postsynaptic density organization",
+                       "learning", "myelination","gliogenesis","regulation of neurogenesis")
+
+# Filter GO results to keep only the selected terms
+go_selected <- go_combined %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+
+# Pivot data for heatmap format
+heatmap_data_long <- go_selected %>%
+  dplyr::select(Region, Description, log10_p, Regulation) %>%
+  mutate(Region = factor(Region, levels = region_order),  # Ensure correct order
+         Color_Fill = ifelse(str_detect(Region, "_Up$"), log10_p, -log10_p))  # Apply positive for Up, negative for Down
+
+# Automatically insert line breaks for long GO terms
+heatmap_data_long <- heatmap_data_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+heatmap_data_long$Description <- factor(heatmap_data_long$Description, levels = c("circadian rhythm","regulation of chemokine\nproduction","reproductive behavior","postsynaptic density\norganization", "learning", "myelination","gliogenesis","regulation of neurogenesis"))
+
+
+# Create the heatmap with diverging color scale
+ggplot(heatmap_data_long, aes(x = Region, y = Description, fill = Color_Fill)) +
+  geom_tile() +  # Create heatmap tiles
+  scale_fill_gradientn(colors = c("#99BBDD", "white", "#800000"),
+                       values = scales::rescale(c(-3, 0, 15.9))) +  # Blue for Down, Red for Up
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 6.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  geom_rect(xmin = 6.5, xmax = 12.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 22),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-aged-figure2e.tiff',dpi = 300, width = 8, bg = 'white')
+
+```
+
+
+#Figure 2F
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ComplexHeatmap)
+library(readr)
+library(pheatmap)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+#Split data by cluster and up/downregulated
+# Create an empty list to store results
+split_DEGs <- list()
+
+# Loop through each brain region (cluster)
+for (region in unique(final_DEGs_aged$cluster)) {
+  
+  # Subset data for the current region
+  region_DEGs <- final_DEGs_aged %>% filter(cluster == region)
+  
+  # Separate upregulated and downregulated genes
+  upregulated_genes <- region_DEGs %>% filter(avg_log2FC > 0) %>% pull(gene)
+  downregulated_genes <- region_DEGs %>% filter(avg_log2FC < 0) %>% pull(gene)
+  
+  # Store results
+  split_DEGs[[paste0(region, "_Up")]] <- upregulated_genes
+  split_DEGs[[paste0(region, "_Down")]] <- downregulated_genes
+}
+
+# View the structure of the split genes
+str(split_DEGs)
+
+# Set up output directories
+output_dir <- "./FinalGOResults/"
+dir.create(output_dir, showWarnings = FALSE)
+
+#ClusterProfiler on CTX, HP, TH, HY, and STR
+run_GO_analysis <- function(gene_list, region_trend) {
+  if (length(gene_list) > 0) {  # Only run if there are genes
+
+    ego <- enrichGO(
+      gene = gene_list,
+      OrgDb = org.Mm.eg.db,  # Mouse annotation
+      keyType = "SYMBOL",  # Using gene symbols
+      ont = "BP",  # Biological Process
+      pAdjustMethod = "BH",  # Adjust p-values
+      qvalueCutoff = 0.05  # Significance threshold
+    )
+
+    # Save results if GO terms are enriched
+    if (!is.null(ego)) {
+      go_results <- as.data.frame(ego)
+      write.csv(go_results, paste0(output_dir, region_trend, "_GO.csv"), row.names = FALSE)
+
+      return(go_results)  # Return results for visualization
+    }
+  }
+  return(NULL)
+}
+
+# Run GO analysis for each brain region and regulation
+go_results_list <- list()  # Store GO results for plotting
+for (name in names(split_DEGs)) {
+  go_results_list[[name]] <- run_GO_analysis(split_DEGs[[name]], name)
+}
+
+#Remove VS, FT, and RT from downstream analysis due to low spot number
+# Define brain regions to remove
+regions_to_remove <- c("VS_Up", "VS_Down","RT_Up","RT_Down") 
+
+# Remove them from the list
+go_results_list <- go_results_list[setdiff(names(go_results_list), regions_to_remove)]
+
+# Check the updated list
+str(go_results_list)
+
+
+# Load GO results for each brain region (assuming they are stored as separate files)
+go_results_list <- list(
+  CTX_Up = read.csv("./FinalGOResults/Aged/CTX_Up_GO.csv"),
+  CTX_Down = read.csv("./FinalGOResults/Aged/CTX_Down_GO.csv"),
+  HP_Up = read.csv("./FinalGOResults/Aged/HP_Up_GO.csv"),
+  HP_Down = read.csv("./FinalGOResults/Aged/HP_Down_GO.csv"),
+  TH_Up = read.csv("./FinalGOResults/Aged/TH_Up_GO.csv"),
+  TH_Down = read.csv("./FinalGOResults/Aged/TH_Down_GO.csv"),
+  HY_Up = read.csv("./FinalGOResults/Aged/HY_Up_GO.csv"),
+  HY_Down = read.csv("./FinalGOResults/Aged/HY_Down_GO.csv"),
+  STR_Up = read.csv("./FinalGOResults/Aged/STR_Up_GO.csv"),
+  STR_Down = read.csv("./FinalGOResults/Aged/STR_Down_GO.csv"),
+  FT_Up = read.csv("./FinalGOResults/Aged/FT_Up_GO.csv"),
+  FT_Down = read.csv("./FinalGOResults/Aged/FT_Down_GO.csv")
+)
+
+# Combine all into one list
+
+
+# Combine all GO results into a single dataframe
+go_combined <- bind_rows(go_results_list, .id = "Region")
+
+# Convert p.adjust to -log10 scale
+go_combined <- go_combined %>%
+  mutate(log10_p = -log10(p.adjust)) 
+
+# Define the desired order of brain regions
+region_order <- c("CTX_Up", "HP_Up", "TH_Up", "HY_Up", "STR_Up","FT_Up","CTX_Down", "HP_Down", "TH_Down", "HY_Down", "STR_Down","FT_Down")
+
+# Add Up/Down classification based on the original dataset
+go_combined <- go_combined %>%
+  mutate(Regulation = ifelse(str_detect(Region, "_Up$"), "Upregulated", "Downregulated"))  # Detect "_Up" or "_Down"
+
+# # Select the top 2 GO terms per brain region (both Up and Down)
+# go_top2 <- go_combined %>%
+#   group_by(Region, Regulation) %>%
+#   top_n(-2, wt = p.adjust) %>%  # Select top 2 per category
+#   ungroup()
+
+# Define GO terms to display
+selected_go_terms <- c("astrocyte differentiation", "oligodendrocyte development", "oligodendrocyte differentiation", "learning",
+                       "mRNA processing", "response to peptide hormone","RNA splicing","immune response-activating signaling pathway")
+
+# Filter GO results to keep only the selected terms
+go_selected <- go_combined %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+
+# Pivot data for heatmap format
+heatmap_data_long <- go_selected %>%
+  dplyr::select(Region, Description, log10_p, Regulation) %>%
+  mutate(Region = factor(Region, levels = region_order),  # Ensure correct order
+         Color_Fill = ifelse(str_detect(Region, "_Up$"), log10_p, -log10_p))  # Apply positive for Up, negative for Down
+
+# Automatically insert line breaks for long GO terms
+heatmap_data_long <- heatmap_data_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+heatmap_data_long$Description <- factor(heatmap_data_long$Description, levels = c("astrocyte differentiation", "oligodendrocyte development", "oligodendrocyte\ndifferentiation", "learning","mRNA processing", "response to peptide hormone","RNA splicing","immune response-activating\nsignaling pathway"))
+
+
+# Create the heatmap with diverging color scale
+ggplot(heatmap_data_long, aes(x = Region, y = Description, fill = Color_Fill)) +
+  geom_tile() +  # Create heatmap tiles
+  scale_fill_gradientn(colors = c("#003366", "white", "#B24747"),
+                       values = scales::rescale(c(-13.2, 0, 7.5))) +  # Blue for Down, Red for Up
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 6.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  geom_rect(xmin = 6.5, xmax = 12.5, ymin = 0.5, ymax = 8.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 22),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-aged-figure2f.tiff',dpi = 300, width = 8, bg = 'white')
+
+```
+
+
+#Figure 4a/4b trends
+```{r}
+# Merge by both gene and cluster to ensure correct matching
+merged_DEGs <- full_join(final_DEGs_p21, final_DEGs_aged, 
+                     by = c("gene", "cluster"))  # Match both gene and cluster
+
+
+# Assign trends within each brain region
+merged_DEGs <- merged_DEGs %>%
+  mutate(Trend = case_when(
+    avg_log2FC.x > 0 & avg_log2FC.y > 0  ~ "Up/Up",
+    avg_log2FC.x < 0 & avg_log2FC.y < 0  ~ "Down/Down",
+    avg_log2FC.x < 0 & avg_log2FC.y > 0  ~ "Down/Up",
+    avg_log2FC.x > 0 & avg_log2FC.y < 0  ~ "Up/Down",
+    is.na(avg_log2FC.x) & avg_log2FC.y > 0 ~ "Aged Up",
+    is.na(avg_log2FC.x) & avg_log2FC.y < 0 ~ "Aged Down",
+    avg_log2FC.x > 0 & is.na(avg_log2FC.y) ~ "P21 Up",
+    avg_log2FC.x < 0 & is.na(avg_log2FC.y) ~ "P21 Down",
+    TRUE ~ "Other"
+  ))
+
+
+
+# View results Figure 4a
+table(merged_DEGs$Trend, merged_DEGs$cluster)  # Count of genes in each trend
+
+# Extract genes for each trend
+# Create output directory
+output_dir <- "./FinalTrends/"
+dir.create(output_dir, showWarnings = FALSE)
+
+# Loop through each Trend and Cluster combination
+for (trend in unique(merged_DEGs$Trend)) {
+  for (cluster_name in unique(merged_DEGs$cluster)) {  
+    subset_genes <- merged_DEGs %>%
+      filter(Trend == trend & cluster == cluster_name) %>%
+      select(gene)
+    
+    # Debugging print
+    cat("\nTrend:", trend, "- Cluster:", cluster_name, "- Genes Found:", nrow(subset_genes))
+    print(head(subset_genes, 10))  # Show first 10 genes
+    
+    if (nrow(subset_genes) > 0) {
+      safe_trend <- gsub("/", "_", trend)  
+      filename <- paste0(output_dir, cluster_name, "_", safe_trend, ".csv")  
+      write.csv(subset_genes, filename, row.names = FALSE)  
+    }
+  }
+}
+
+
+#Gene ontology analysis on Trends 1-4 (trends with >50genes)
+# Define the directory containing CSV files
+file_dir <- "./FinalTrends/"
+
+# Use list.files() with a regex pattern to match the desired filenames
+file_list <- list.files(path = file_dir, 
+                        pattern = "(P21 Down|P21 Up|Aged Down|Aged Up)\\.csv$", 
+                        full.names = TRUE)
+
+# Read all selected CSVs into a list
+deg_list <- lapply(file_list, read.csv)
+
+# Assign names to the list based on filenames (remove directory path and .csv extension)
+names(deg_list) <- basename(file_list) %>% str_remove("\\.csv$")
+
+# Function to perform GO analysis
+perform_go_analysis <- function(gene_df, organism_db = "org.Mm.eg.db") {
+  # Extract gene list
+  genes <- gene_df$gene  # Ensure 'gene' column exists
+  
+  # Convert gene symbols to Entrez IDs (skip those that fail conversion)
+  genes_entrez <- bitr(genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = get(organism_db))
+  
+  # Run GO enrichment analysis
+  go_results <- enrichGO(gene          = genes_entrez$ENTREZID,
+                         OrgDb         = get(organism_db),
+                         keyType       = "ENTREZID",
+                         ont           = "BP",  # Biological Process
+                         pAdjustMethod = "BH",
+                         pvalueCutoff  = 0.05,
+                         qvalueCutoff  = 0.05,
+                         readable      = TRUE)  # Converts IDs to gene names
+  
+  return(go_results)
+}
+
+# Apply function to each dataset in the list
+go_results_list <- lapply(deg_list, perform_go_analysis)
+
+
+# Convert GO results into a dataframe with source info
+extract_go_results <- function(go_result, source_name) {
+  if (is.null(go_result) || nrow(as.data.frame(go_result)) == 0) return(NULL)  # Skip empty results
+  
+  go_df <- as.data.frame(go_result) %>%
+    dplyr::select(ID, Description, p.adjust, GeneRatio) %>%
+    mutate(Source = source_name)  # Add file/source info
+  
+  return(go_df)
+}
+
+# Apply extraction to all results and combine into one dataframe
+go_results_df <- bind_rows(
+  mapply(extract_go_results, go_results_list, names(go_results_list), SIMPLIFY = FALSE)
+)
+
+# Modify the Source column to extract brain region and trend
+go_results_df <- go_results_df %>%
+  separate(Source, into = c("BrainRegion", "Trend"), sep = "_", extra = "merge") %>%
+  mutate(Trend = recode(Trend, "Up" = "Upregulated", "Down" = "Downregulated"))
+
+#saveRDS(go_results_df,'go_results_df.rds')
+
+# Splitting the dataframe into four separate dataframes based on the expression trends
+#remove VS and RT regions
+df_p21_up <- subset(go_results_df, Trend == "P21 Up" & !(BrainRegion %in% c("RT", "VS")))
+df_p21_down <- subset(go_results_df, Trend == "P21 Down" & !(BrainRegion %in% c("RT", "VS")))
+df_aged_up <- subset(go_results_df, Trend == "Aged Up" & !(BrainRegion %in% c("RT", "VS")))
+df_aged_down <- subset(go_results_df, Trend == "Aged Down" & !(BrainRegion %in% c("RT", "VS")))
+
+###############################################################
+#Figure 4b TREND 1 (Aged up)
+# Define GO terms to display
+selected_go_terms <- c("vesicle-mediated transport in synapse","glial cell differentiation","neuron apoptotic process","RNA splicing","learning or memory")
+
+# Filter GO results to keep only the selected terms
+aged_up_selected <- df_aged_up %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+region_order <- c("CTX","HP","TH","HY","STR","FT")
+# Pivot data for heatmap format
+aged_up_selected_long <- aged_up_selected %>%
+  dplyr::select(BrainRegion, Description, p.adjust) %>%
+  mutate(BrainRegion = factor(BrainRegion, levels = region_order))
+
+# Automatically insert line breaks for long GO terms
+aged_up_selected_long <-aged_up_selected_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+aged_up_selected_long$Description <- factor(aged_up_selected_long$Description, levels = c("vesicle-mediated transport in\nsynapse","glial cell differentiation","neuron apoptotic process","RNA splicing","learning or memory"))
+
+
+#Figure 4b TREND 1 (aged up)
+# Create the heatmap with diverging color scale
+ggplot(aged_up_selected_long, aes(x = BrainRegion, y = Description, fill = -log10(p.adjust))) +
+  geom_tile() +  # Create heatmap tiles
+ scale_fill_gradientn(colors = c("white", "#003366")) +
+  theme_minimal() + 
+  geom_rect(xmin = 0.5, xmax = 6.5, ymin = 0.5, ymax = 5.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_text(angle = 45, size = 18, face = 'bold'),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 30, hjust = .5),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "Trend 1", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-trend1-figure4b.tiff',dpi = 300, bg = 'white', height = 5)
+
+
+##############################################################################
+#Figure 4b TREND 2 (Aged down)
+# Define GO terms to display
+selected_go_terms <- c("neurotransmitter transport","regulation of membrane potential","glial cell differentiation","synapse assembly","cognition")
+
+# Filter GO results to keep only the selected terms
+aged_down_selected <- df_aged_down %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+region_order <- c("CTX","HP","TH","HY","STR","FT")
+# Pivot data for heatmap format
+aged_down_selected_long <- aged_down_selected %>%
+  dplyr::select(BrainRegion, Description, p.adjust) %>%
+  mutate(BrainRegion = factor(BrainRegion, levels = region_order))
+
+# Automatically insert line breaks for long GO terms
+aged_down_selected_long <-aged_down_selected_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+aged_down_selected_long$Description <- factor(aged_down_selected_long$Description, levels = c("neurotransmitter transport","regulation of membrane\npotential","glial cell differentiation","synapse assembly","cognition"))
+
+
+#Figure 4b TREND 2 (aged down)
+# Create the heatmap with diverging color scale
+ggplot(aged_down_selected_long, aes(x = BrainRegion, y = Description, fill = -log10(p.adjust))) +
+  geom_tile() +  # Create heatmap tiles
+ scale_fill_gradientn(colors = c("white", "#003366"),
+                      values = scales::rescale(c(0, 2, 10, 25))) +
+  theme_minimal() + 
+  geom_rect(xmin = 0.5, xmax = 6.5, ymin = 0.5, ymax = 5.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_text(angle = 45, size = 18, face = 'bold'),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 30, hjust = .5),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "Trend 2", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-trend2-figure4c.tiff',dpi = 300, bg = 'white', height = 5)
+
+##############################################################################
+
+#Figure 4d TREND 3 (P21 up)
+# Define GO terms to display
+selected_go_terms <- c("neuropeptide signaling pathway","positive regulation of nervous system development","myelination","gliogenesis","regulation of neurogenesis")
+
+# Filter GO results to keep only the selected terms
+p21_up_selected <- df_p21_up %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+# Pivot data for heatmap format
+p21_up_selected_long <- p21_up_selected %>%
+  dplyr::select(BrainRegion, Description, p.adjust) %>%
+  mutate(BrainRegion = factor(BrainRegion, levels = region_order))
+
+# Automatically insert line breaks for long GO terms
+p21_up_selected_long <-p21_up_selected_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+p21_up_selected_long$Description <- factor(p21_up_selected_long$Description, levels = c("neuropeptide signaling pathway","positive regulation of nervous\nsystem development","myelination","gliogenesis","regulation of neurogenesis"))
+
+
+#Figure 4d TREND 3 (P21 up)
+# Create the heatmap with diverging color scale
+ggplot(p21_up_selected_long, aes(x = BrainRegion, y = Description, fill = -log10(p.adjust))) +
+  geom_tile() +  # Create heatmap tiles
+ scale_fill_gradientn(colors = c("white", "#003366")) +
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 5.5, ymin = 0.5, ymax = 5.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_text(angle = 45, size = 18, face = 'bold'),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 30, hjust = .5),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "Trend 3", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-trend3-figure4d.tiff',dpi = 300, bg = 'white', height = 5)
+
+
+##############################################################################
+
+#Figure 4e TREND 4 (P21 down)
+# Define GO terms to display
+selected_go_terms <- c("mRNA splicing, via spliceosome","reproductive behavior","adaptive thermogenesis","regulation of type 2 immune response")
+
+# Filter GO results to keep only the selected terms
+p21_down_selected <- df_p21_down %>%
+  filter(Description %in% selected_go_terms) %>%
+  ungroup()
+
+# Pivot data for heatmap format
+p21_down_selected_long <- p21_down_selected %>%
+  dplyr::select(BrainRegion, Description, p.adjust)
+
+# Automatically insert line breaks for long GO terms
+p21_down_selected_long <-p21_down_selected_long %>%
+  mutate(Description = str_wrap(Description, width = 30))  # Adjust width for wrapping
+
+p21_up_selected_long$Description <- factor(p21_up_selected_long$Description, levels = c(""))
+
+
+#Figure 4b TREND 3 (P21 up)
+# Create the heatmap with diverging color scale
+ggplot(p21_down_selected_long, aes(x = BrainRegion, y = Description, fill = -log10(p.adjust))) +
+  geom_tile() +  # Create heatmap tiles
+ scale_fill_gradientn(colors = c("white", "#003366"),
+                      breaks = c(0,1,2.4)) +
+  theme_minimal() +  
+  geom_rect(xmin = 0.5, xmax = 5.5, ymin = 0.5, ymax = 4.5, 
+          color = "black", fill = NA, size = 1) +
+  theme(axis.text.x = element_text(angle = 45, size = 18, face = 'bold'),
+        axis.text.y = element_text(size = 18, face = 'bold'),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 18),
+        plot.title = element_text(size = 30, hjust = .5),
+        strip.text = element_text(size = 16),  # Increase facet title size
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = 'bottom') +  
+  labs(title = "Trend 4", fill = "-log10(p.adjust)")
+
+ggsave('./FinalFigures/heatmap-trend4-figure4e2.tiff',dpi = 300, bg = 'white', width = 10)
+
+```
+
+#Figure 4c/4d
+```{r}
+#Figure 4c
+# Define the pt.size.factor values for each group of samples
+pt_size_factors <- c(730, 730, 3.5, 3.5, 5, 5)
+
+color_scale <- scale_fill_gradientn(
+  limits = c(0, 10),  # Set the limits to cover the full range of your data
+  colours = rev(RColorBrewer::brewer.pal(n = 11, name = "Spectral")),# Use a color palette
+ # Define the breaks for the legend
+)
+
+# Get the names of the images
+ident_values <- names(merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialFeaturePlot(merge.obj, features = 'Gfap',images = ident_values[i], pt.size.factor = pt_size_factors[i]) + 
+  ggtitle(paste(ident_values[i])) +
+  color_scale 
+  #  theme(legend.position = "none")  # Remove individual legends
+})
+# Create a dummy plot to extract the legend
+legend_plot <- SpatialFeaturePlot(merge.obj, features = "Gfap", images = ident_values[1]) + color_scale
+
+# Extract the legend
+legend <- cowplot::get_legend(legend_plot)
+
+# Combine the plots and add the common legend
+combined_plot <- patchwork::wrap_plots(plots, nrow = 1) + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "bottom")
+
+# Add the legend to the combined plot
+final_plot <- cowplot::plot_grid(combined_plot, legend, ncol = 1, rel_heights = c(1, 0.1))
+
+# Print the final plot
+print(final_plot)
+
+##########################################################
+#Figure 4d
+# Define the pt.size.factor values for each group of samples
+pt_size_factors <- c(730, 730, 3.5, 3.5, 5, 5)
+
+color_scale <- scale_fill_gradientn(
+  limits = c(0, 12),  # Set the limits to cover the full range of your data
+  colours = rev(RColorBrewer::brewer.pal(n = 11, name = "Spectral")),# Use a color palette
+ # Define the breaks for the legend
+)
+
+# Get the names of the images
+ident_values <- names(merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialFeaturePlot(merge.obj, features = 'Mbp',images = ident_values[i], pt.size.factor = pt_size_factors[i]) + 
+  ggtitle(paste(ident_values[i])) +
+  color_scale 
+  #  theme(legend.position = "none")  # Remove individual legends
+})
+# Create a dummy plot to extract the legend
+legend_plot <- SpatialFeaturePlot(merge.obj, features = "Mbp", images = ident_values[1]) + color_scale
+
+# Extract the legend
+legend <- cowplot::get_legend(legend_plot)
+
+# Combine the plots and add the common legend
+combined_plot <- patchwork::wrap_plots(plots, nrow = 1) + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "bottom")
+
+# Add the legend to the combined plot
+final_plot <- cowplot::plot_grid(combined_plot, legend, ncol = 1, rel_heights = c(1, 0.1))
+
+# Print the final plot
+print(final_plot)
+```
+
+
+
+#Supplementary Figure S1a/S1b
+```{r}
+#Figure S1a
+VlnPlot(object = merge.obj, 
+        group.by = 'orig.ident',
+        features = 'nCount_Spatial',
+        pt.size = 0) +
+  ylim(0,100000)
+ggsave('./Figures/Final/medianUMI.tiff')
+
+summary(merge.obj$nCount_Spatial)
+
+###############################################################
+#Figure S1b
+VlnPlot(object = merge.obj, 
+        group.by = 'orig.ident',
+        features = 'nFeature_Spatial',
+        pt.size = 0)
+ggsave('./Figures/Final/medianGenes.tiff')
+
+summary(merge.obj$nFeature_Spatial)
+
+###############################################################
+#Figure S1c
+# Define the pt.size.factor values for each group of samples
+pt_size_factors <- c(730, 730, 3.5, 3.5, 5, 5)
+
+color_scale <- scale_fill_gradientn(
+  limits = c(0, 100000),  # Set the limits to cover the full range of your data
+  colours = rev(RColorBrewer::brewer.pal(n = 11, name = "Spectral")),# Use a color palette
+ # Define the breaks for the legend
+)
+
+# Get the names of the images
+ident_values <- names(merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialFeaturePlot(merge.obj, features = 'nCount_Spatial',images = ident_values[i], pt.size.factor = pt_size_factors[i]) + 
+  ggtitle(paste(ident_values[i])) +
+  color_scale 
+  #  theme(legend.position = "none")  # Remove individual legends
+})
+# Create a dummy plot to extract the legend
+legend_plot <- SpatialFeaturePlot(merge.obj, features = "nCount_Spatial", images = ident_values[1]) + color_scale
+
+# Extract the legend
+legend <- cowplot::get_legend(legend_plot)
+
+# Combine the plots and add the common legend
+combined_plot <- patchwork::wrap_plots(plots, nrow = 1) + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "bottom")
+
+# Add the legend to the combined plot
+final_plot <- cowplot::plot_grid(combined_plot, legend, ncol = 1, rel_heights = c(1, 0.1))
+
+# Print the final plot
+print(final_plot)
+
+```
+
+
+#Supplementary Figure 1d
+```{r}
+pt_size_factors <- c(800, 800, 4, 4, 5, 5)
+
+# Get the names of the images
+ident_values <- names(merge.obj@images)
+
+# Create the plots with the specified pt.size.factor values
+plots <- lapply(seq_along(ident_values), function(i) {
+  SpatialDimPlot(merge.obj, images = ident_values[i], pt.size.factor = pt_size_factors[i]) + theme(legend.position = 'none') + ggtitle(ident_values[i]) 
+   #color_scale + 
+  #  theme(legend.position = "none")  # Remove individual legends
+})
+
+# Combine the plots and add the common legend
+combined_plot <- patchwork::wrap_plots(plots, nrow = 1)
+
+ggsave('./FinalFigures/spatialDimPlot-all.tiff', dpi = 300)
+```
+
+
+#Supplementary Figure S2a
+```{r}
+raw.list <- list(
+  merge.obj@assays$Spatial@layers$counts.1,
+  merge.obj@assays$Spatial@layers$counts.2,
+  merge.obj@assays$Spatial@layers$counts.3,
+  merge.obj@assays$Spatial@layers$counts.4,
+  merge.obj@assays$Spatial@layers$counts.5,
+  merge.obj@assays$Spatial@layers$counts.6
+)
+
+# Combine into one matrix
+raw.count <- do.call(cbind, raw.list)
+
+rownames(raw.count) <- rownames(merge.obj)
+colnames(raw.count) <- colnames(merge.obj)
+raw.count <- t(raw.count)
+raw.count <- as.data.frame(raw.count)
+
+merge.obj$anatomy.v2 <- as.character(merge.obj@active.ident)
+merge.obj$combine.anatomy.sample <- paste0(merge.obj$anatomy.v2,".",as.character(merge.obj$orig.ident))
+
+#Rename samples to remove _, a problem for AverageExpression() 
+merge.obj@meta.data$combine.anatomy.sample <- gsub("_", ".", merge.obj@meta.data$combine.anatomy.sample)
+
+merge.obj$combine.anatomy.sample <- as.character(merge.obj$combine.anatomy.sample)
+
+# avg.combine.anatomy.sample <- AverageExpression(merge.obj, features = "Mag",  group.by = "combine.anatomy.sample")
+# Error in data.use %*% category.matrix : non-conformable arguments
+#Skipped
+
+temp.df <- FetchData(merge.obj, vars = "combine.anatomy.sample")
+
+raw.count$aggre <- temp.df$combine.anatomy.sample[match(rownames(raw.count),rownames(temp.df))]
+
+# Convert raw.count to a tibble for easier manipulation
+raw.count.tb <- as_tibble(raw.count)
+
+# Group by 'aggre' and summarize each gene's count
+pseudobulk <- raw.count.tb %>%
+  group_by(aggre) %>%
+  summarize(across(everything(), sum, .names = "{.col}"))
+
+pseudobulk.t <- as.data.frame(t(pseudobulk))
+
+colnames(pseudobulk.t) <- pseudobulk.t["aggre",]
+pseudobulk.t <- pseudobulk.t[-1,]
+# Now convert everything to numeric
+pseudobulk_numeric <- as.data.frame(apply(pseudobulk.t, 2, as.numeric))
+
+pseudobulk_numeric <- pseudobulk.t %>%
+  mutate(across(everything(), ~as.numeric(trimws(.))))
+
+column_sums <- colSums(pseudobulk_numeric, na.rm = TRUE)
+
+pseudobulk.cpm <- sweep(pseudobulk_numeric, 2, column_sums, FUN = "/") * 10^6
+
+cor_matrix <- cor(pseudobulk_numeric, use = "pairwise.complete.obs")
+colnames(cor_matrix)
+
+library(corrplot)
+
+# Plot the correlation matrix
+tiff("correlation_plot.tiff", width = 8, height = 8, units = "in", res = 300)
+
+corrplot(cor_matrix, method = "color",
+         col = rev(COL2('RdBu', 20)),
+         is.corr = FALSE,addgrid.col = 'white',order = 'hclust',
+         tl.pos = 'lt',tl.col = 'black',
+         col.lim = c(0,1))
+
+dev.off()
+
+
+library(reshape2)
+library(ggplot2)
+
+# Convert matrix to long format for ggplot2 for easier manipulation and saving
+cor_df <- melt(cor_matrix)
+
+
+library(RColorBrewer)
+
+# Use 11 colors from RdBu and reverse it
+rd_bu_colors <- rev(brewer.pal(11, "RdBu"))
+
+# For a 24 x 24 matrix, generate 24 diagonal 2x2 boxes
+n_blocks <- 48  # Number of diagonal boxes to draw
+
+highlight_boxes <- data.frame(
+  xmin = seq(0.5, n_blocks - 0.5, by = 2),
+  xmax = seq(2.5, n_blocks + 1.5, by = 2),
+  ymin = seq(0.5, n_blocks - 0.5, by = 2),
+  ymax = seq(2.5, n_blocks + 1.5, by = 2)
+)
+
+
+# Apply to ggplot2 using scale_fill_gradientn
+p <- ggplot(cor_df, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradientn(colors = rd_bu_colors, 
+                       limits = c(0, 1),
+                       breaks = seq(0,1,by=.1),
+                       name = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.4,hjust = 1, size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 12),         # Increase legend labels
+        legend.title = element_text(size = 14, face = "bold")) +
+  coord_fixed() +
+  guides(fill = guide_colorbar(barheight = unit(10, "cm"),   # Increase bar height
+                               barwidth = unit(1, "cm"))) +
+  geom_rect(data = highlight_boxes, 
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
+            color = "black", fill = NA, size = 1,
+            inherit.aes = FALSE)
+
+ggsave("./FinalFigures/correlation_plot_ggplot_rdBu.tiff", plot = p, width = 10, height = 10, dpi = 300, units = "in", bg = 'white')
+
+```
+
+#Supplementary Figure S2b and S2c
+```{r}
+#Figure S2C
+# Create the violin plot without dots and assign custom colors
+p.list <- VlnPlot(merge.obj, features = c("Actb", "Top1", "B2m"), 
+                  group.by = "orig.ident", 
+                  slot = "counts", 
+                  pt.size = 0,        # REMOVE dots
+                  combine = FALSE)
+
+# Assign custom fill colors directly to each plot
+p.list[[1]] <- p.list[[1]] + 
+  scale_fill_manual(values = rep("blue", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("Actb") + NoLegend()
+
+p.list[[2]] <- p.list[[2]] + 
+  scale_fill_manual(values = rep("red", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("Top1") + NoLegend()
+
+p.list[[3]] <- p.list[[3]] + 
+  scale_fill_manual(values = rep("yellow", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("B2m") + NoLegend()
+
+# Combine plots vertically
+library(patchwork)
+final_plot <- p.list[[1]] / p.list[[2]] / p.list[[3]] + plot_layout(guides = "collect")
+
+# Display the plot
+final_plot
+
+
+
+#Figure S2c
+# Create the violin plot without dots and assign custom colors
+p.list <- VlnPlot(merge.obj, features = c("Actb", "Top1", "B2m"), 
+                  group.by = "orig.ident", 
+                  slot = "data", 
+                  pt.size = 0,        # REMOVE dots
+                  combine = FALSE)
+
+# Assign custom fill colors directly to each plot
+p.list[[1]] <- p.list[[1]] + 
+  scale_fill_manual(values = rep("blue", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("Actb") + NoLegend()
+
+p.list[[2]] <- p.list[[2]] + 
+  scale_fill_manual(values = rep("red", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("Top1") + NoLegend()
+
+p.list[[3]] <- p.list[[3]] + 
+  scale_fill_manual(values = rep("yellow", length(unique(merge.obj$orig.ident)))) + 
+  ggtitle("B2m") + NoLegend()
+
+# Combine plots vertically
+library(patchwork)
+final_plot <- p.list[[1]] / p.list[[2]] / p.list[[3]] + plot_layout(guides = "collect")
+
+# Display the plot
+final_plot
+
+```
+
+
+#Supplementary Heatmaps S5 and S6
+```{r}
+#Trending down genes
+deg_cortex <- read.csv('./FinalTrends/CTX_Up_Down.csv')
+deg_hippocampus <- read.csv('./FinalTrends/HP_Up_Down.csv')
+deg_striatum <- read.csv('./FinalTrends/STR_Up_Down.csv')
+deg_thalamus <- read.csv('./FinalTrends/TH_Up_Down.csv')
+deg_hypothalamus <- read.csv('./FinalTrends/HY_Up_Down.csv')
+deg_ft <- read.csv('./FinalTrends/FT_Up_Down.csv')
+
+deg_list <- list(
+  CTX = deg_cortex$gene,
+  HP = deg_hippocampus$gene,
+  STR = deg_striatum$gene,
+  TH = deg_thalamus$gene,
+  HY = deg_hypothalamus$gene,
+  FT = deg_ft$gene
+)
+brain_regions <- unique(Idents(merge.obj))
+
+# Create a list to store heatmap plots for each brain region
+heatmap_plots <- lapply(names(deg_list), function(region) {
+  # Get the DEGs for the current brain region
+  genes_of_interest <- deg_list[[region]]
+  
+  # Subset the Seurat object to include cells from the current brain region
+  region_subset <- subset(merge.obj, idents = region)
+  
+  # Create the heatmap for the current brain region
+  p <- DoHeatmap(region_subset, features = genes_of_interest, group.by = "orig.ident") + 
+    scale_fill_gradientn(colors = c("blue", "white", "red")) +
+    ggtitle(paste("Heatmap for Brain Region:", region)) +  # Title indicating the brain region
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 15)
+    ) 
+   ggsave(filename = paste0("./FinalFigures/Heatmap_", region,"_down.tiff"), plot = p, width = 10, height = 8)
+  
+  return(p)
+})
+
+
+#Trending down genes
+deg_cortex <- read.csv('./FinalTrends/CTX_Down_Up.csv')
+deg_hippocampus <- read.csv('./FinalTrends/HP_Down_Up.csv')
+deg_striatum <- read.csv('./FinalTrends/STR_Down_Up.csv')
+deg_thalamus <- read.csv('./FinalTrends/TH_Down_Up.csv')
+deg_hypothalamus <- read.csv('./FinalTrends/HY_Down_Up.csv')
+deg_ft <- read.csv('./FinalTrends/FT_Down_Up.csv')
+
+deg_list_up <- list(
+  CTX = deg_cortex$gene,
+  HP = deg_hippocampus$gene,
+  STR = deg_striatum$gene,
+  TH = deg_thalamus$gene,
+  HY = deg_hypothalamus$gene,
+  FT = deg_ft$gene
+)
+#Trending up gene heatmap
+# Create a list to store heatmap plots for each brain region
+heatmap_plots_up <- lapply(names(deg_list_up), function(region) {
+  # Get the DEGs for the current brain region
+  genes_of_interest <- deg_list_up[[region]]
+  
+  # Subset the Seurat object to include cells from the current brain region
+  region_subset <- subset(merge.obj, idents = region)
+  
+  # Create the heatmap for the current brain region
+  p <- DoHeatmap(region_subset, features = genes_of_interest, group.by = "orig.ident") + 
+    scale_fill_gradientn(colors = c("blue", "white", "red")) +
+    ggtitle(paste("Heatmap for Brain Region:", region)) +  # Title indicating the brain region
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 15)
+    ) 
+   ggsave(filename = paste0("./FinalFigures/Heatmap_", region, ".tiff"), plot = p, width = 10, height = 8)
+  
+  return(p)
+})
+
+
+```
+
