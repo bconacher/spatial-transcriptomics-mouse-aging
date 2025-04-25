@@ -64,25 +64,18 @@ Key findings highlight:
 
 ## 📂 Repository Structure
 
-- **analysis/**:
-  - `mouse_brain_aging_analysis.Rmd`: Complete analysis pipeline including:
-    - Preprocessing: Filtering, normalization, batch correction
-    - Clustering and dimensionality reduction (PCA, UMAP, Harmony)
-    - Differential gene expression (P21 vs Adult, Aged vs Adult)
-    - Gene Ontology enrichment
-    - Hippocampal subregion analysis (DG, CA1-2, CA3, Matrix)
-    - DEG trend analysis across development and aging
-
-- **figures/**:
-  - Contains code to generate publication-quality plots, including UMAPs, DEG heatmaps, GO heatmaps.
-
-- **results/**:
-  - `deg_P21_vs_Adult.csv`
-  - `deg_Aged_vs_Adult.csv`
-  - `GO_terms_P21.csv`
-  - `GO_terms_Aged.csv`
-  - Subregion-specific DEG trends and summaries.
-
+- **analysis/**
+  - `mouse_brain_aging_analysis.Rmd`: 
+    - Complete analysis pipeline and figures for the main dataset including:
+      - Preprocessing: Filtering, normalization, batch correction
+      - Clustering and dimensionality reduction (PCA, UMAP, Harmony)
+      - Differential gene expression (P21 vs Adult, Aged vs Adult)
+      - Gene Ontology enrichment (whole brain regions)
+  - `hippocampus_subclustering_analysis.Rmd`: 
+    - Focused analysis of hippocampal subregions and figures:
+      - Subclustering into DG, CA1-2, CA3, Matrix
+      - Region-specific DEG analysis
+      - Subregion GO enrichment and trend analysis across development and aging
 ---
 
 ### 📊 Data Access
