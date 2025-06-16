@@ -23,7 +23,7 @@ Key findings highlight:
 - **Biological Replicates**: 2 per group
 - **Groups**:
   - **Postnatal Day 21 (P21)**
-  - **Adult (12–15 weeks)**
+  - **Adult (3 months)**
   - **Aged (28 months)**
 - **Tissue Preparation**: Formalin-fixed paraffin-embedded (FFPE) brain sections.
 
