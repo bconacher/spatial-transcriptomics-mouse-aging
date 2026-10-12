@@ -4,11 +4,15 @@ This repository contains the analysis code for the manuscript:
 
 **"Spatial Transcriptomics Reveals Regional and Temporal Dynamics of Gene Expression in the Mouse Brain Across Development and Aging"**
 
-### 📥 Download Processed Dataset
+### 📥 Download Processed Datasets
 
-**[Download the annotated Seurat object (v1.0)](https://github.com/bconacher/spatial-transcriptomics-mouse-aging/releases/tag/v1.0-processed-data)**
+**[Download annotated Seurat objects (v1.0)](https://github.com/bconacher/spatial-transcriptomics-mouse-aging/releases/tag/v1.0-processed-data)**
 
-The processed Seurat object (`mouse_brain_aging_annotated.rds`, ~276 MB) contains all six mouse brain samples, 20,336 spatial spots, and the final anatomical brain-region annotations used in our analysis.
+Available datasets:
+- **Whole brain:** 20,336 spatial spots across eight anatomical regions.
+- **Hippocampus:** 1,811 spatial spots with DG, CA3, CA1-2, and Matrix annotations.
+
+Both objects contain the original anatomical annotations used in our analysis.
 
 ---
 
