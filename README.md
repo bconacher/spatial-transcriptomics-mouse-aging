@@ -4,6 +4,12 @@ This repository contains the analysis code for the manuscript:
 
 **"Spatial Transcriptomics Reveals Regional and Temporal Dynamics of Gene Expression in the Mouse Brain Across Development and Aging"**
 
+### 📥 Download Processed Dataset
+
+**[Download the annotated Seurat object (v1.0)](https://github.com/bconacher/spatial-transcriptomics-mouse-aging/releases/tag/v1.0-processed-data)**
+
+The processed Seurat object (`mouse_brain_aging_annotated.rds`, ~276 MB) contains all six mouse brain samples, 20,336 spatial spots, and the final anatomical brain-region annotations used in our analysis.
+
 ---
 
 ## 🧠 Overview
@@ -78,6 +84,48 @@ Key findings highlight:
       - Subregion GO enrichment and trend analysis across development and aging
 ---
 
-### 📊 Data Access
+## 📊 Data Availability
 
-All raw and processed data are available at NCBI GEO: [GSE287202](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE287202)
+### Processed and Annotated Seurat Object
+
+The final annotated Seurat object is available for download from [GitHub Releases (v1.0-processed-data)](https://github.com/bconacher/spatial-transcriptomics-mouse-aging/releases/tag/v1.0-processed-data).
+
+**File:** `mouse_brain_aging_annotated.rds` (~276 MB)
+
+The object contains:
+- Six mouse brain spatial transcriptomics samples (P21, adult, and aged; two biological replicates each)
+- 20,336 spatial spots
+- Eight annotated anatomical brain regions
+- Refined hypothalamic subclustering
+- Raw counts and normalized expression layers
+- PCA, Harmony, and UMAP reductions
+- Spatial images and spot-level metadata
+
+The object was reduced in size by removing intermediate scaled-expression layers while retaining the saved anatomical annotations.
+
+### Loading the Processed Dataset
+
+```r
+library(Seurat)
+
+obj <- readRDS("mouse_brain_aging_annotated.rds")
+
+# Inspect annotations
+table(obj$combinedCluster)
+
+# Visualize annotated regions
+DimPlot(obj, reduction = "umap", group.by = "combinedCluster", label = TRUE)
+
+# Visualize anatomical assignments on tissue
+SpatialDimPlot(obj, images = "aged_1", group.by = "combinedCluster")
+```
+
+### Reproducibility Notes
+
+Anatomical regions were annotated using transcriptomic clustering, spatial coordinates, and anatomical references from the Allen Brain Atlas. Some region assignments were manually refined through interactive selection in Seurat. Consequently, running the processing script from raw data may not reproduce identical anatomical assignments without those manual selections.
+
+The released Seurat object preserves the final annotations used in downstream analyses. The intermediate scaled-expression layers were excluded to reduce file size and can be regenerated if required. The original analysis scripts are retained to document the processing workflow; they are not a fully self-contained reconstruction of the interactive annotation steps.
+
+### Raw Data
+
+Raw and processed data are available through NCBI GEO: [GSE287202](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE287202).
